@@ -38,6 +38,14 @@ class TestComplexPath:
         assert result.routing_path == "complex"
 
     @pytest.mark.anyio
+    async def test_cube_on_tree_with_eyes(self):
+        request = SupervisorRequest(
+            instruction="Make a cube on top of a tree with eyes", canvas_data=None
+        )
+        result = await evaluate_complexity(request)
+        assert result.routing_path == "complex"
+
+    @pytest.mark.anyio
     async def test_sketch_only(self):
         request = SupervisorRequest(
             instruction="", canvas_data={"shapes": []}
@@ -62,7 +70,7 @@ class TestEdgeCases:
             instruction="make a cube and a cylinder", canvas_data=None
         )
         result = await evaluate_complexity(request)
-        assert result.routing_path == "simple"
+        assert result.routing_path == "complex"
 
     @pytest.mark.anyio
     async def test_rejects_toolbox(self):
@@ -78,5 +86,6 @@ class TestEdgeCases:
         )
         result = await evaluate_complexity(request)
         assert result.routing_path == "simple"
+
 
 
