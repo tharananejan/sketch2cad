@@ -12,38 +12,38 @@ from services.agent_logic import evaluate_complexity
 
 
 class TestSimplePath:
-    def test_make_a_cube(self):
+    @pytest.mark.anyio
+    async def test_make_a_cube(self):
         request = SupervisorRequest(instruction="make a cube", canvas_data=None)
-        result = evaluate_complexity(request)
+        result = await evaluate_complexity(request)
         assert result.routing_path == "simple"
-        assert result.matched_primitive == "cube"
         assert result.original_instruction == "make a cube"
 
-    def test_cylinder_with_dimensions(self):
+    @pytest.mark.anyio
+    async def test_cylinder_with_dimensions(self):
         request = SupervisorRequest(
             instruction="create a cylinder 10mm radius", canvas_data=None
         )
-        result = evaluate_complexity(request)
+        result = await evaluate_complexity(request)
         assert result.routing_path == "simple"
-        assert result.matched_primitive == "cylinder"
 
 
 class TestComplexPath:
-    def test_bracket_design(self):
+    @pytest.mark.anyio
+    async def test_bracket_design(self):
         request = SupervisorRequest(
             instruction="design a bracket with mounting holes", canvas_data=None
         )
-        result = evaluate_complexity(request)
+        result = await evaluate_complexity(request)
         assert result.routing_path == "complex"
-        assert result.matched_primitive is None
 
-    def test_sketch_only(self):
+    @pytest.mark.anyio
+    async def test_sketch_only(self):
         request = SupervisorRequest(
             instruction="", canvas_data={"shapes": []}
         )
-        result = evaluate_complexity(request)
+        result = await evaluate_complexity(request)
         assert result.routing_path == "complex"
-        assert result.matched_primitive is None
         assert result.original_instruction == ""
 
 
@@ -56,25 +56,27 @@ class TestEdgeCases:
         with pytest.raises(ValidationError):
             SupervisorRequest(instruction="   ", canvas_data={})
 
-    def test_multiple_primitives_first_match_wins(self):
+    @pytest.mark.anyio
+    async def test_multiple_primitives(self):
         request = SupervisorRequest(
             instruction="make a cube and a cylinder", canvas_data=None
         )
-        result = evaluate_complexity(request)
+        result = await evaluate_complexity(request)
         assert result.routing_path == "simple"
-        assert result.matched_primitive == "cube"
 
-    def test_word_boundary_rejects_toolbox(self):
+    @pytest.mark.anyio
+    async def test_rejects_toolbox(self):
         request = SupervisorRequest(instruction="open the toolbox", canvas_data=None)
-        result = evaluate_complexity(request)
+        result = await evaluate_complexity(request)
         assert result.routing_path == "complex"
-        assert result.matched_primitive is None
 
-    def test_primitive_with_canvas_still_simple(self):
+    @pytest.mark.anyio
+    async def test_primitive_with_canvas_still_simple(self):
         request = SupervisorRequest(
             instruction="make a sphere",
             canvas_data={"shapes": [{"type": "draw"}]},
         )
-        result = evaluate_complexity(request)
+        result = await evaluate_complexity(request)
         assert result.routing_path == "simple"
-        assert result.matched_primitive == "sphere"
+
+

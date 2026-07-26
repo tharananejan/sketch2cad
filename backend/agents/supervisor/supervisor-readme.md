@@ -42,7 +42,6 @@ At least one of a non-empty `instruction` or a non-null/non-empty `canvas_data` 
 ```json
 {
   "routing_path": "simple",
-  "matched_primitive": "cube",
   "original_instruction": "make a cube with a width of 50mm"
 }
 ```
@@ -50,7 +49,6 @@ At least one of a non-empty `instruction` or a non-null/non-empty `canvas_data` 
 | Field | Type | Description |
 |-------|------|-------------|
 | `routing_path` | `"simple"` \| `"complex"` | Flag telling n8n where to send the payload next |
-| `matched_primitive` | string \| null | Identified shape when path is `simple` (e.g. `"cube"`) |
 | `original_instruction` | string | Original prompt passed downstream unchanged |
 
 ### Simple path example
@@ -64,7 +62,6 @@ Response:
 ```json
 {
   "routing_path": "simple",
-  "matched_primitive": "cube",
   "original_instruction": "make a cube with a width of 50mm"
 }
 ```
@@ -80,7 +77,6 @@ Response:
 ```json
 {
   "routing_path": "complex",
-  "matched_primitive": null,
   "original_instruction": "design a bracket with mounting holes"
 }
 ```
@@ -96,10 +92,10 @@ Response:
 ```json
 {
   "routing_path": "complex",
-  "matched_primitive": null,
   "original_instruction": ""
 }
 ```
+
 
 ## Routing Rules
 
