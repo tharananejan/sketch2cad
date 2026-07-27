@@ -1,0 +1,6 @@
+backend/agents/execution/temp_script.py
+*.step
+*.stl
+*.obj
+*.FCStd
+*.FCBak
