@@ -143,15 +143,23 @@ def retrieve_context(query: str, settings: Settings = None) -> Tuple[str, List[s
         results = collection.query(
             query_texts=[query],
             n_results=settings.TOP_K,
+            include=["documents", "metadatas", "distances"],
         )
         if not results or not results.get("documents") or not results["documents"][0]:
             return "", []
 
         context_parts = []
         sources = set()
+        max_dist = getattr(settings, "RAG_MAX_DISTANCE", 0.65)
         for i in range(len(results["documents"][0])):
+            dist = results["distances"][0][i] if "distances" in results and results["distances"] else 0.0
+            if dist > max_dist:
+                continue
             context_parts.append(results["documents"][0][i])
             sources.add(results["metadatas"][0][i]["source"])
+
+        if not context_parts:
+            return "", []
 
         context_str = "\n---\n".join(context_parts)
         return context_str, sorted(list(sources))

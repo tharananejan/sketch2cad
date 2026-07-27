@@ -28,6 +28,8 @@ async def generate_code(
         raise HTTPException(status_code=400, detail="Instruction step cannot be empty.")
 
     code, sources = generate_cad_code(step=request.step, settings=settings)
+    if code.strip().lower() == "step not available":
+        return CodeGenerateResponse(code="step not available", sources=sources, error="step not available")
     return CodeGenerateResponse(code=code, sources=sources)
 
 

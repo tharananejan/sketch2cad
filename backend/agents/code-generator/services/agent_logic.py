@@ -43,22 +43,24 @@ def generate_cad_code(step: str, settings: Settings = None) -> Tuple[str, List[s
     if settings is None:
         settings = get_settings()
 
+    if not step or not step.strip():
+        return "step not available", []
+
     # 1. Retrieve RAG context
     context_str, sources = retrieve_context(step, settings=settings)
 
+    # If no relevant knowledge retrieved from knowledge base, terminate process with error
+    if not context_str:
+        logger.warning(f"No relevant RAG knowledge found for step: '{step}'. Terminating with 'step not available'.")
+        return "step not available", []
+
     # 2. Prepare prompts
     system_prompt = _load_system_prompt(settings)
-    if context_str:
-        user_prompt = (
-            f"Reference Context from Knowledge Base:\n{context_str}\n\n"
-            f"User Instruction Step:\n{step}\n\n"
-            f"Generate FreeCAD Python macro code for this step:"
-        )
-    else:
-        user_prompt = (
-            f"User Instruction Step:\n{step}\n\n"
-            f"Generate FreeCAD Python macro code for this step:"
-        )
+    user_prompt = (
+        f"Reference Context from Knowledge Base:\n{context_str}\n\n"
+        f"User Instruction Step:\n{step}\n\n"
+        f"If the Reference Context contains the knowledge for this step, generate FreeCAD Python macro code. Otherwise output ONLY: step not available"
+    )
 
     # 3. Query Ollama API
     url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
@@ -93,8 +95,15 @@ def generate_cad_code(step: str, settings: Settings = None) -> Tuple[str, List[s
         error_code = f"# [ERROR] Ollama API request failed: {str(e)}\n" f"# Instruction was: {step}"
         return error_code, sources
 
+    if not raw_output or "step not available" in raw_output.lower():
+        logger.warning(f"LLM indicated step not available for: '{step}'")
+        return "step not available", sources
+
     # 4. Clean and validate code
     cleaned_code = extract_python_code(raw_output)
+    if cleaned_code.strip().lower() == "step not available" or "step not available" in cleaned_code.lower():
+        return "step not available", sources
+
     is_valid, syntax_error = validate_python_syntax(cleaned_code)
     if not is_valid:
         logger.warning(f"Generated code has syntax issue: {syntax_error}")

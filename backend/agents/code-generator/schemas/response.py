@@ -2,6 +2,7 @@
 Response schemas for the Code Generator Agent API.
 """
 
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -17,4 +18,9 @@ class CodeGenerateResponse(BaseModel):
         default_factory=list,
         description="List of knowledge base source files retrieved via RAG during generation.",
         examples=[["sample_freecad.txt"]],
+    )
+    error: Optional[str] = Field(
+        None,
+        description="Error message if the step is not available or generation failed.",
+        examples=["step not available"],
     )

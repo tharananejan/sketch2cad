@@ -18,6 +18,7 @@ class Settings:
         self.CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "500"))
         self.CHUNK_OVERLAP: int = int(os.getenv("CHUNK_OVERLAP", "50"))
         self.TOP_K: int = int(os.getenv("TOP_K", "3"))
+        self.RAG_MAX_DISTANCE: float = float(os.getenv("RAG_MAX_DISTANCE", "0.65"))
 
         # Paths
         self.PROJECT_ROOT: str = os.path.dirname(os.path.abspath(__file__))

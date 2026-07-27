@@ -59,6 +59,27 @@ class TestCodeGeneratorComponents(unittest.TestCase):
         settings = get_settings()
         prompt = _load_system_prompt(settings)
         self.assertIn("FreeCAD", prompt)
+        self.assertIn("step not available", prompt)
+
+    def test_step_not_available_handling(self):
+        raw_output = "I don't have instructions for this. step not available"
+        extracted = extract_python_code(raw_output)
+        self.assertEqual(extracted, "step not available")
+        is_valid, err = validate_python_syntax(extracted)
+        self.assertTrue(is_valid)
+        self.assertIsNone(err)
+
+    def test_request_schema_flexibility(self):
+        from schemas.request import CodeGenerateRequest
+        req1 = CodeGenerateRequest.model_validate({"step": "make a cube (5mm,5mm,10mm)"})
+        self.assertEqual(req1.step, "make a cube (5mm,5mm,10mm)")
+        req2 = CodeGenerateRequest.model_validate({"instruction": "make a cyclinder(10,10,10)"})
+        self.assertEqual(req2.step, "make a cyclinder(10,10,10)")
+
+    def test_response_schema_error_field(self):
+        from schemas.response import CodeGenerateResponse
+        resp = CodeGenerateResponse(code="step not available", error="step not available")
+        self.assertEqual(resp.error, "step not available")
 
 
 if __name__ == "__main__":

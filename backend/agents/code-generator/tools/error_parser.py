@@ -16,6 +16,9 @@ def extract_python_code(raw_text: str) -> str:
     if not raw_text:
         return ""
 
+    if "step not available" in raw_text.strip().lower():
+        return "step not available"
+
     # Look for ```python ... ``` or ``` ... ``` blocks
     pattern = r"```(?:python)?\s*\n(.*?)\n```"
     matches = re.findall(pattern, raw_text, re.DOTALL | re.IGNORECASE)
@@ -39,6 +42,9 @@ def validate_python_syntax(code: str) -> Tuple[bool, Optional[str]]:
     """
     if not code or not code.strip():
         return False, "Generated code is empty."
+
+    if code.strip().lower() == "step not available":
+        return True, None
 
     try:
         ast.parse(code)
