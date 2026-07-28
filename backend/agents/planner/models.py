@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+ParameterValue: TypeAlias = str | int | float | bool
 
 
 class PlannerContext(BaseModel):
@@ -16,6 +19,7 @@ class PlannerContext(BaseModel):
     completed_steps: list[str] = Field(default_factory=list)
     remaining_steps: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    parameter_answers: dict[str, ParameterValue] = Field(default_factory=dict)
 
 
 class PlannerRequest(BaseModel):
@@ -38,13 +42,27 @@ class PlanStep(BaseModel):
     depends_on: list[int] = Field(default_factory=list)
 
 
+class ParameterQuestion(BaseModel):
+    """One CAD-critical parameter the planner needs before it can plan safely."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    parameter_id: str = Field(min_length=1, max_length=120)
+    question: str = Field(min_length=1, max_length=500)
+    value_type: Literal["number", "integer", "string", "boolean", "choice"]
+    unit: str | None = Field(default=None, max_length=50)
+    options: list[str] = Field(default_factory=list)
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class PlanDraft(BaseModel):
     """Internal response schema required from the LLM provider."""
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["planned", "unsupported"]
+    status: Literal["planned", "needs_parameters", "unsupported"]
     steps: list[PlanStep] = Field(default_factory=list)
+    questions: list[ParameterQuestion] = Field(default_factory=list)
     reason: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
@@ -56,10 +74,28 @@ class PlanDraft(BaseModel):
                 raise ValueError("Unsupported responses must include a reason.")
             if self.steps:
                 raise ValueError("Unsupported responses cannot include modeling steps.")
+            if self.questions:
+                raise ValueError("Unsupported responses cannot include parameter questions.")
+            return self
+
+        if self.reason:
+            raise ValueError("Only unsupported responses can include a reason.")
+
+        if self.status == "needs_parameters":
+            if self.steps:
+                raise ValueError("Parameter question responses cannot include modeling steps.")
+            if not self.questions:
+                raise ValueError("Parameter question responses must include at least one question.")
+
+            parameter_ids = [question.parameter_id for question in self.questions]
+            if len(parameter_ids) != len(set(parameter_ids)):
+                raise ValueError("Parameter question IDs must be unique.")
             return self
 
         if not self.steps:
             raise ValueError("Planned responses must include at least one modeling step.")
+        if self.questions:
+            raise ValueError("Planned responses cannot include parameter questions.")
 
         step_ids = [step.step_id for step in self.steps]
         expected_ids = list(range(1, len(self.steps) + 1))
@@ -79,6 +115,24 @@ class PlanResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    status: Literal["planned"] = "planned"
     plan_id: str = Field(min_length=1)
     complexity: Literal["complex"] = "complex"
     steps: list[PlanStep] = Field(min_length=1)
+
+
+class NeedsParametersResponse(BaseModel):
+    """Public response asking orchestration to collect missing CAD parameters."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["needs_parameters"] = "needs_parameters"
+    plan_id: str = Field(min_length=1)
+    complexity: Literal["complex"] = "complex"
+    questions: list[ParameterQuestion] = Field(min_length=1)
+
+
+PlannerResponse: TypeAlias = Annotated[
+    PlanResponse | NeedsParametersResponse,
+    Field(discriminator="status"),
+]

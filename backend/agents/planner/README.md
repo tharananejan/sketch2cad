@@ -1,6 +1,6 @@
 # Frontier Planning Agent
 
-The Frontier Planning Agent converts already-classified **complex** Sketch2CAD requests into an ordered, implementation-agnostic CAD modeling plan. It never writes Python, FreeCAD APIs, CAD syntax, executable scripts, or provider-specific logic into its plan output.
+The Frontier Planning Agent converts already-classified **complex** Sketch2CAD requests into an ordered, implementation-agnostic CAD modeling plan. If CAD-critical parameters are missing, it asks structured follow-up questions before planning. It never writes Python, FreeCAD APIs, CAD syntax, executable scripts, or provider-specific logic into its plan output.
 
 ## Architecture
 
@@ -8,7 +8,7 @@ The Frontier Planning Agent converts already-classified **complex** Sketch2CAD r
 
 Development and test deployments use `GroqProvider`; production switches to `DeepSeekProvider` with configuration only. Both implement the same OpenAI-compatible `LLMProvider` interface. A new provider can be added without changing `PlannerService`.
 
-The agent consumes the context supplied by n8n but never mutates context or shared files. The downstream Code Generation Agent receives only the successful `steps` array.
+The agent consumes the context supplied by n8n but never mutates context or shared files. The downstream Code Generation Agent receives only responses whose `status` is `planned`; `needs_parameters` responses must be routed back to the user for answers.
 
 ## Request Schema
 
@@ -19,19 +19,21 @@ The agent consumes the context supplied by n8n but never mutates context or shar
     "expected_design": "Wall-mounted electronics enclosure",
     "completed_steps": [],
     "remaining_steps": [],
-    "errors": []
+    "errors": [],
+    "parameter_answers": {}
   }
 }
 ```
 
-`context` is optional. Its fields default to an empty design description and empty arrays.
+`context` is optional. Its fields default to an empty design description, empty arrays, and an empty `parameter_answers` object. Follow-up requests should keep the same design request and add answers keyed by the returned `parameter_id`.
 
-## Success Response Schema
+## Response Schemas
 
-Successful responses are exactly this JSON shape:
+Planned responses are exactly this JSON shape:
 
 ```json
 {
+  "status": "planned",
   "plan_id": "f1cf2bb2-7ea8-53d9-8616-9175c6f15dd9",
   "complexity": "complex",
   "steps": [
@@ -46,6 +48,28 @@ Successful responses are exactly this JSON shape:
 ```
 
 Step IDs must start at `1`, remain consecutive, and depend only on earlier step IDs. The plan ID is deterministically derived from the request and context.
+
+When CAD-critical details are missing, the planner returns questions instead of steps:
+
+```json
+{
+  "status": "needs_parameters",
+  "plan_id": "f1cf2bb2-7ea8-53d9-8616-9175c6f15dd9",
+  "complexity": "complex",
+  "questions": [
+    {
+      "parameter_id": "side_length",
+      "question": "What side length should the cube have?",
+      "value_type": "number",
+      "unit": "mm",
+      "options": [],
+      "reason": "A cube requires one equal side length."
+    }
+  ]
+}
+```
+
+The orchestrator should collect answers, place them in `context.parameter_answers`, and call `/planner` again.
 
 ## Error Schema
 
@@ -103,7 +127,7 @@ python -m pytest backend/agents/planner/tests
 
 ## Prompt Design
 
-The dedicated prompt instructs the provider to think like a CAD engineer, preserve engineering intent, and produce atomic sequential modeling operations. It requires JSON-only output and either a valid plan draft or an explicit unsupported declaration. It explicitly bans Python, scripts, API calls, FreeCAD APIs, CAD syntax, macros, and explanatory prose.
+The dedicated prompt instructs the provider to think like a CAD engineer, preserve engineering intent, and first check for missing CAD-critical parameters. It requires JSON-only output and either a valid plan draft, a valid parameter-question draft, or an explicit unsupported declaration. It explicitly bans Python, scripts, API calls, FreeCAD APIs, CAD syntax, macros, and explanatory prose.
 
 The service first performs strict JSON parsing. If that fails, it makes one deterministic extraction-and-parse retry for fenced or prefixed JSON. A second failure returns `malformed_model_response`; it never invents a fallback plan.
 

@@ -45,8 +45,39 @@ def test_endpoint_returns_only_the_plan_response_shape() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert set(response.json()) == {"plan_id", "complexity", "steps"}
+    assert set(response.json()) == {"status", "plan_id", "complexity", "steps"}
+    assert response.json()["status"] == "planned"
     assert response.json()["complexity"] == "complex"
+
+
+def test_endpoint_returns_needs_parameters_response_shape() -> None:
+    response_text = json.dumps(
+        {
+            "status": "needs_parameters",
+            "questions": [
+                {
+                    "parameter_id": "side_length",
+                    "question": "What side length should the cube have?",
+                    "value_type": "number",
+                    "unit": "mm",
+                    "options": [],
+                    "reason": "A cube requires one equal side length.",
+                }
+            ],
+        }
+    )
+    app.dependency_overrides[get_planner_service] = lambda: PlannerService(FakeProvider(response_text))
+
+    try:
+        client = TestClient(app)
+        response = client.post("/planner", json={"request": "Generate a cube."})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert set(response.json()) == {"status", "plan_id", "complexity", "questions"}
+    assert response.json()["status"] == "needs_parameters"
+    assert response.json()["questions"][0]["parameter_id"] == "side_length"
 
 
 def test_endpoint_returns_json_error_envelope_for_empty_request() -> None:

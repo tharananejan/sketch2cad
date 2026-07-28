@@ -15,7 +15,14 @@ from .errors import (
     MalformedModelResponseError,
     UnsupportedRequestError,
 )
-from .models import PlanDraft, PlanResponse, PlanStep, PlannerRequest
+from .models import (
+    NeedsParametersResponse,
+    PlanDraft,
+    PlanResponse,
+    PlanStep,
+    PlannerRequest,
+    PlannerResponse,
+)
 from .prompts.system_prompt import PLANNER_SYSTEM_PROMPT
 from .providers.base import LLMProvider
 
@@ -36,7 +43,7 @@ class PlannerService:
     def __init__(self, provider: LLMProvider) -> None:
         self._provider = provider
 
-    def plan(self, planner_request: PlannerRequest) -> PlanResponse:
+    def plan(self, planner_request: PlannerRequest) -> PlannerResponse:
         """Create one strict modeling plan from a complex request and its context."""
 
         if not planner_request.request.strip():
@@ -54,9 +61,17 @@ class PlannerService:
                 draft.reason or "The request is not supported for CAD modeling.",
             )
 
+        plan_id = self._derive_plan_id(planner_request)
+        if draft.status == "needs_parameters":
+            return NeedsParametersResponse(
+                plan_id=plan_id,
+                complexity="complex",
+                questions=draft.questions,
+            )
+
         self._ensure_modeling_only(draft.steps)
         return PlanResponse(
-            plan_id=self._derive_plan_id(planner_request),
+            plan_id=plan_id,
             complexity="complex",
             steps=draft.steps,
         )

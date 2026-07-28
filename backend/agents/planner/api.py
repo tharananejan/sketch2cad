@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from .dependencies import get_planner_service
 from .errors import InvalidRequestError, PlannerError
-from .models import PlanResponse, PlannerRequest
+from .models import PlannerRequest, PlannerResponse
 from .service import PlannerService
 
 app = FastAPI(title="Sketch2CAD Frontier Planning Agent", version="1.0.0")
@@ -115,13 +115,36 @@ _PLANNER_UI = """<!doctype html>
       line-height: 1.5;
       white-space: pre-wrap;
     }
+    #questions-panel {
+      display: none;
+      padding: 24px 28px;
+      border-top: 1px solid #e5e9f0;
+      background: #fbfcfe;
+    }
+    #questions-panel h2 {
+      margin: 0 0 16px;
+      font-size: 18px;
+      line-height: 1.3;
+    }
+    #questions-panel form {
+      padding: 0;
+    }
+    .question-row {
+      display: grid;
+      gap: 6px;
+    }
+    .question-meta {
+      color: #586170;
+      font-size: 13px;
+      line-height: 1.4;
+    }
   </style>
 </head>
 <body>
   <main>
     <header>
       <h1>Sketch2CAD Frontier Planner</h1>
-      <p>Paste a complex CAD design request. The planner returns modeling steps only.</p>
+      <p>Paste a complex CAD design request. The planner returns modeling steps or parameter questions.</p>
     </header>
     <form id="planner-form">
       <label>
@@ -134,16 +157,26 @@ _PLANNER_UI = """<!doctype html>
       </label>
       <button id="submit" type="submit">Generate Plan</button>
     </form>
+    <section id="questions-panel" aria-live="polite"></section>
     <pre id="output">Planner output will appear here.</pre>
   </main>
   <script>
     const form = document.getElementById("planner-form");
     const output = document.getElementById("output");
     const submit = document.getElementById("submit");
+    const questionsPanel = document.getElementById("questions-panel");
+    let parameterAnswers = {};
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      parameterAnswers = {};
+      await submitPlannerRequest();
+    });
+
+    async function submitPlannerRequest() {
       submit.disabled = true;
+      questionsPanel.style.display = "none";
+      questionsPanel.replaceChildren();
       output.textContent = "Planning...";
 
       const payload = {
@@ -152,7 +185,8 @@ _PLANNER_UI = """<!doctype html>
           expected_design: document.getElementById("expected-design").value,
           completed_steps: [],
           remaining_steps: [],
-          errors: []
+          errors: [],
+          parameter_answers: parameterAnswers
         }
       };
 
@@ -164,12 +198,95 @@ _PLANNER_UI = """<!doctype html>
         });
         const data = await response.json();
         output.textContent = JSON.stringify(data, null, 2);
+        if (data.status === "needs_parameters") {
+          renderParameterQuestions(data.questions || []);
+        }
       } catch (error) {
         output.textContent = JSON.stringify({ error: String(error) }, null, 2);
       } finally {
         submit.disabled = false;
       }
-    });
+    }
+
+    function renderParameterQuestions(questions) {
+      questionsPanel.style.display = "block";
+      const heading = document.createElement("h2");
+      heading.textContent = "Parameter answers";
+      const answersForm = document.createElement("form");
+
+      for (const question of questions) {
+        const row = document.createElement("label");
+        row.className = "question-row";
+        row.textContent = question.question;
+
+        const field = createAnswerField(question);
+        row.appendChild(field);
+
+        const meta = document.createElement("span");
+        meta.className = "question-meta";
+        const unitText = question.unit ? ` Unit: ${question.unit}.` : "";
+        meta.textContent = `${question.reason}${unitText}`;
+        row.appendChild(meta);
+
+        answersForm.appendChild(row);
+      }
+
+      const answerButton = document.createElement("button");
+      answerButton.type = "submit";
+      answerButton.textContent = "Submit Answers";
+      answersForm.appendChild(answerButton);
+
+      answersForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        parameterAnswers = collectParameterAnswers(answersForm);
+        await submitPlannerRequest();
+      });
+
+      questionsPanel.replaceChildren(heading, answersForm);
+    }
+
+    function createAnswerField(question) {
+      if (question.value_type === "choice") {
+        const select = document.createElement("select");
+        select.dataset.parameterId = question.parameter_id;
+        select.required = true;
+        for (const option of question.options || []) {
+          const optionElement = document.createElement("option");
+          optionElement.value = option;
+          optionElement.textContent = option;
+          select.appendChild(optionElement);
+        }
+        return select;
+      }
+
+      const input = document.createElement("input");
+      input.dataset.parameterId = question.parameter_id;
+      input.required = question.value_type !== "boolean";
+      if (question.value_type === "number" || question.value_type === "integer") {
+        input.type = "number";
+        input.step = question.value_type === "integer" ? "1" : "any";
+      } else if (question.value_type === "boolean") {
+        input.type = "checkbox";
+      } else {
+        input.type = "text";
+      }
+      return input;
+    }
+
+    function collectParameterAnswers(answersForm) {
+      const answers = {};
+      for (const field of answersForm.querySelectorAll("[data-parameter-id]")) {
+        const parameterId = field.dataset.parameterId;
+        if (field.type === "checkbox") {
+          answers[parameterId] = field.checked;
+        } else if (field.type === "number") {
+          answers[parameterId] = field.step === "1" ? Number.parseInt(field.value, 10) : Number.parseFloat(field.value);
+        } else {
+          answers[parameterId] = field.value;
+        }
+      }
+      return answers;
+    }
   </script>
 </body>
 </html>"""
@@ -193,11 +310,11 @@ async def handle_request_validation_error(_: Request, error: RequestValidationEr
     return JSONResponse(status_code=planner_error.status_code, content=planner_error.to_payload())
 
 
-@app.post("/planner", response_model=PlanResponse)
+@app.post("/planner", response_model=PlannerResponse)
 def create_plan(
     planner_request: PlannerRequest,
     service: PlannerService = Depends(get_planner_service),
-) -> PlanResponse:
+) -> PlannerResponse:
     """Generate a strict complex CAD plan for n8n orchestration."""
 
     return service.plan(planner_request)
