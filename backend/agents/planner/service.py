@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from typing import Any
+from typing import Any, TypeVar
 
 from pydantic import ValidationError
 
@@ -16,15 +16,20 @@ from .errors import (
     UnsupportedRequestError,
 )
 from .models import (
+    DimensionAnswer,
     NeedsParametersResponse,
+    ParameterAuditDraft,
+    ParameterQuestion,
     PlanDraft,
     PlanResponse,
     PlanStep,
     PlannerRequest,
     PlannerResponse,
 )
-from .prompts.system_prompt import PLANNER_SYSTEM_PROMPT
+from .prompts.system_prompt import PLANNER_AUDIT_SYSTEM_PROMPT, PLANNER_PLANNING_SYSTEM_PROMPT
 from .providers.base import LLMProvider
+
+_DraftT = TypeVar("_DraftT", ParameterAuditDraft, PlanDraft)
 
 _FORBIDDEN_OUTPUT_PATTERNS = (
     re.compile(r"```", re.IGNORECASE),
@@ -35,6 +40,30 @@ _FORBIDDEN_OUTPUT_PATTERNS = (
     re.compile(r"\bdef\s+\w+", re.IGNORECASE),
     re.compile(r"\bhttps?://", re.IGNORECASE),
 )
+_LINEAR_UNIT_PATTERN = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(?:mm|millimeter|millimeters|cm|centimeter|centimeters|in|inch|inches)\b",
+    re.IGNORECASE,
+)
+_NUMBER_PATTERN = re.compile(r"\b\d+(?:\.\d+)?\b", re.IGNORECASE)
+_DIMENSION_KEYWORDS = (
+    "height",
+    "tall",
+    "width",
+    "wide",
+    "depth",
+    "deep",
+    "length",
+    "long",
+    "diameter",
+    "radius",
+    "thickness",
+    "clearance",
+    "slot",
+    "lip",
+    "side",
+)
+_ANGLE_KEYWORDS = ("angle", "tilt", "incline", "lean", "degrees", "degree")
+_SUPPORTED_UNITS = {"mm", "cm", "inch"}
 
 
 class PlannerService:
@@ -49,31 +78,72 @@ class PlannerService:
         if not planner_request.request.strip():
             raise InvalidRequestError("The request must not be empty.")
 
-        user_prompt = self._build_user_prompt(planner_request)
-        raw_response = self._provider.generate(
-            system_prompt=PLANNER_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-        )
-        draft = self._parse_draft(raw_response)
-
-        if draft.status == "unsupported":
-            raise UnsupportedRequestError(
-                draft.reason or "The request is not supported for CAD modeling.",
-            )
-
         plan_id = self._derive_plan_id(planner_request)
-        if draft.status == "needs_parameters":
+        pending_questions = self._questions_requiring_answers(
+            planner_request.context.pending_questions,
+            planner_request.context.parameter_answers,
+        )
+        if pending_questions:
             return NeedsParametersResponse(
                 plan_id=plan_id,
                 complexity="complex",
-                questions=draft.questions,
+                questions=pending_questions,
             )
 
-        self._ensure_modeling_only(draft.steps)
+        user_prompt = self._build_user_prompt(planner_request)
+        audit_response = self._provider.generate(
+            system_prompt=PLANNER_AUDIT_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+        )
+        audit_draft = self._parse_draft(audit_response, ParameterAuditDraft)
+
+        if audit_draft.status == "unsupported":
+            raise UnsupportedRequestError(
+                audit_draft.reason or "The request is not supported for CAD modeling.",
+            )
+
+        if audit_draft.status == "needs_parameters":
+            unresolved_audit_questions = self._questions_requiring_answers(
+                audit_draft.questions,
+                planner_request.context.parameter_answers,
+            )
+            unresolved_audit_questions = self._keep_explicit_correction_questions(
+                audit_draft.questions,
+                unresolved_audit_questions,
+            )
+            if not unresolved_audit_questions:
+                audit_draft = ParameterAuditDraft(status="ready")
+            else:
+                return NeedsParametersResponse(
+                    plan_id=plan_id,
+                    complexity="complex",
+                    questions=unresolved_audit_questions,
+                )
+
+        fallback_questions = self._fallback_questions_for_underspecified_ready_request(planner_request)
+        if fallback_questions:
+            return NeedsParametersResponse(
+                plan_id=plan_id,
+                complexity="complex",
+                questions=fallback_questions,
+            )
+
+        plan_response = self._provider.generate(
+            system_prompt=PLANNER_PLANNING_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+        )
+        plan_draft = self._parse_draft(plan_response, PlanDraft)
+
+        if plan_draft.status == "unsupported":
+            raise UnsupportedRequestError(
+                plan_draft.reason or "The request is not supported for CAD modeling.",
+            )
+
+        self._ensure_modeling_only(plan_draft.steps)
         return PlanResponse(
             plan_id=plan_id,
             complexity="complex",
-            steps=draft.steps,
+            steps=plan_draft.steps,
         )
 
     @staticmethod
@@ -91,7 +161,7 @@ class PlannerService:
         )
         return str(uuid.uuid5(uuid.NAMESPACE_URL, canonical_input))
 
-    def _parse_draft(self, raw_response: str) -> PlanDraft:
+    def _parse_draft(self, raw_response: str, draft_type: type[_DraftT]) -> _DraftT:
         try:
             payload = json.loads(raw_response)
         except json.JSONDecodeError:
@@ -104,12 +174,430 @@ class PlannerService:
                 ) from error
 
         try:
-            return PlanDraft.model_validate(payload)
+            return draft_type.model_validate(payload)
         except ValidationError as error:
             raise InvalidModelResponseError(
                 "The planner provider returned JSON outside the planner contract.",
                 details={"validation_errors": error.errors(include_url=False)},
             ) from error
+
+    def _questions_requiring_answers(
+        self,
+        pending_questions: list[ParameterQuestion],
+        parameter_answers: dict[str, Any],
+    ) -> list[ParameterQuestion]:
+        unresolved_questions: list[ParameterQuestion] = []
+        for question in pending_questions:
+            if question.parameter_id not in parameter_answers:
+                unresolved_questions.append(question)
+                continue
+
+            answer = parameter_answers[question.parameter_id]
+            issue = self._answer_issue(question, answer)
+            if issue:
+                unresolved_questions.append(
+                    question.model_copy(
+                        update={
+                            "current_value": answer,
+                            "issue": issue,
+                        }
+                    )
+                )
+        return unresolved_questions
+
+    @staticmethod
+    def _keep_explicit_correction_questions(
+        audit_questions: list[ParameterQuestion],
+        unresolved_questions: list[ParameterQuestion],
+    ) -> list[ParameterQuestion]:
+        """Retain model-reported CAD contradictions even when their shape is valid.
+
+        A valid dimension payload only proves that the user selected a positive value and a
+        supported unit. An audit may still identify a cross-parameter conflict such as a wall
+        thickness that cannot fit inside an outer diameter. Those questions must remain visible.
+        """
+
+        unresolved_ids = {question.parameter_id for question in unresolved_questions}
+        for question in audit_questions:
+            if question.issue and question.parameter_id not in unresolved_ids:
+                unresolved_questions.append(question)
+                unresolved_ids.add(question.parameter_id)
+        return unresolved_questions
+
+    @staticmethod
+    def _answer_issue(question: ParameterQuestion, answer: Any) -> str | None:
+        if question.value_type == "dimension":
+            dimension = PlannerService._coerce_dimension_answer(answer)
+            if dimension is None:
+                return "Dimension answers must include both a numeric value and a unit."
+            if dimension.unit not in _SUPPORTED_UNITS:
+                return "Dimension unit must be one of mm, cm, or inch."
+            if dimension.value <= 0:
+                return "Dimension value must be greater than zero."
+            return None
+
+        if question.value_type == "number":
+            if isinstance(answer, bool) or not isinstance(answer, (int, float)):
+                return "Answer must be a number."
+            return None
+
+        if question.value_type == "integer":
+            if isinstance(answer, bool) or not isinstance(answer, int):
+                return "Answer must be an integer."
+            return None
+
+        if question.value_type == "boolean":
+            if not isinstance(answer, bool):
+                return "Answer must be true or false."
+            return None
+
+        if question.value_type == "choice":
+            if not isinstance(answer, str) or not answer.strip():
+                return "Answer must be one of the listed choices."
+            if question.options and answer not in question.options:
+                return "Answer must match one of the listed choices."
+            return None
+
+        if not isinstance(answer, str) or not answer.strip():
+            return "Answer must not be empty."
+        return None
+
+    @staticmethod
+    def _coerce_dimension_answer(answer: Any) -> DimensionAnswer | None:
+        if isinstance(answer, DimensionAnswer):
+            return answer
+        if not isinstance(answer, dict):
+            return None
+        try:
+            return DimensionAnswer.model_validate(answer)
+        except ValidationError:
+            return None
+
+    def _fallback_questions_for_underspecified_ready_request(
+        self,
+        planner_request: PlannerRequest,
+    ) -> list[ParameterQuestion]:
+        """Protect against an audit model marking clearly underspecified prompts ready."""
+
+        request_text = planner_request.request.lower()
+        answered_parameter_ids = set(planner_request.context.parameter_answers)
+
+        unitless_questions = self._unitless_dimension_questions(request_text)
+        if unitless_questions:
+            return unitless_questions
+
+        common_questions = self._common_design_missing_questions(request_text, answered_parameter_ids)
+        if common_questions:
+            return common_questions
+        if self._is_common_design(request_text):
+            return []
+
+        if not planner_request.context.parameter_answers:
+            generic_questions = self._generic_envelope_questions(request_text)
+            if generic_questions:
+                return generic_questions
+
+        return []
+
+    def _unitless_dimension_questions(self, request_text: str) -> list[ParameterQuestion]:
+        questions: list[ParameterQuestion] = []
+        for index, match in enumerate(_NUMBER_PATTERN.finditer(request_text), start=1):
+            number_text = match.group(0)
+            window_start = max(0, match.start() - 35)
+            window_end = min(len(request_text), match.end() + 35)
+            window = request_text[window_start:window_end]
+            if _LINEAR_UNIT_PATTERN.search(window) or "degree" in window:
+                continue
+            if not any(keyword in window for keyword in _DIMENSION_KEYWORDS):
+                continue
+
+            questions.append(
+                self._dimension_question(
+                    self._parameter_id_from_window(window, index),
+                    "This dimension is missing a unit. What corrected value and unit should it use?",
+                    "The planner cannot choose whether a dimension is mm, cm, or inch.",
+                    current_value=float(number_text) if "." in number_text else int(number_text),
+                    issue="Dimension is missing a unit.",
+                )
+            )
+        return questions
+
+    def _generic_envelope_questions(self, request_text: str) -> list[ParameterQuestion]:
+        measurement_count = self._linear_measurement_count(request_text)
+        if measurement_count >= 3:
+            return []
+
+        if measurement_count == 2:
+            return [
+                self._dimension_question(
+                    "overall_height",
+                    "What overall height should this design use?",
+                    "A code-ready CAD plan needs the missing main envelope dimension.",
+                )
+            ]
+
+        if measurement_count == 1:
+            return [
+                self._dimension_question(
+                    "overall_width",
+                    "What overall width should this design use?",
+                    "A single supplied dimension is not enough for a code-ready CAD plan.",
+                ),
+                self._dimension_question(
+                    "overall_height",
+                    "What overall height should this design use?",
+                    "A single supplied dimension is not enough for a code-ready CAD plan.",
+                ),
+            ]
+
+        return [
+            self._dimension_question(
+                "overall_length",
+                "What overall length should this design use?",
+                "A code-ready CAD plan needs at least the main envelope dimensions.",
+            ),
+            self._dimension_question(
+                "overall_width",
+                "What overall width should this design use?",
+                "A code-ready CAD plan needs at least the main envelope dimensions.",
+            ),
+            self._dimension_question(
+                "overall_height",
+                "What overall height should this design use?",
+                "A code-ready CAD plan needs at least the main envelope dimensions.",
+            ),
+        ]
+
+    def _common_design_missing_questions(
+        self,
+        request_text: str,
+        answered_parameter_ids: set[str],
+    ) -> list[ParameterQuestion]:
+        if "cube" in request_text:
+            if "side_length" not in answered_parameter_ids and not self._has_linear_measurement(request_text):
+                return [
+                    self._dimension_question(
+                        "side_length",
+                        "What side length should the cube have?",
+                        "A cube requires one equal side length before CAD planning.",
+                    )
+                ]
+            return []
+
+        if "sphere" in request_text or "ball" in request_text:
+            if not ({"sphere_radius", "sphere_diameter"} & answered_parameter_ids) and not self._has_linear_measurement(
+                request_text
+            ):
+                return [
+                    self._dimension_question(
+                        "sphere_diameter",
+                        "What diameter should the sphere have?",
+                        "A sphere requires a radius or diameter before CAD planning.",
+                    )
+                ]
+            return []
+
+        if "cylinder" in request_text:
+            return self._missing_dimension_questions(
+                request_text,
+                answered_parameter_ids,
+                [
+                    (
+                        "cylinder_diameter",
+                        ("diameter", "radius", "wide", "width"),
+                        "What diameter should the cylinder have?",
+                        "The cylinder needs a circular size before CAD planning.",
+                    ),
+                    (
+                        "cylinder_height",
+                        ("height", "tall"),
+                        "What height should the cylinder have?",
+                        "The cylinder needs a height before CAD planning.",
+                    ),
+                ],
+            )
+
+        if "mug" in request_text or "coffee cup" in request_text or "cup" in request_text:
+            return self._missing_dimension_questions(
+                request_text,
+                answered_parameter_ids,
+                [
+                    (
+                        "mug_height",
+                        ("height", "tall"),
+                        "What height should the mug be?",
+                        "The mug body height defines the vessel volume.",
+                    ),
+                    (
+                        "outer_diameter",
+                        ("diameter", "outer", "wide", "width"),
+                        "What outside diameter should the mug have?",
+                        "The outside diameter defines the mug body footprint.",
+                    ),
+                    (
+                        "wall_thickness",
+                        ("wall", "thickness"),
+                        "What wall thickness should the mug have?",
+                        "Wall thickness is required to make the mug hollow and manufacturable.",
+                    ),
+                    (
+                        "handle_clearance",
+                        ("handle clearance", "finger clearance", "handle opening"),
+                        "What handle clearance should the mug provide?",
+                        "Handle clearance controls the functional opening for the user's hand.",
+                    ),
+                ],
+            )
+
+        if "phone holder" in request_text or ("phone" in request_text and "holder" in request_text):
+            questions = self._missing_dimension_questions(
+                request_text,
+                answered_parameter_ids,
+                [
+                    (
+                        "phone_width",
+                        ("phone width", "width", "wide"),
+                        "What phone width should the holder fit?",
+                        "The slot width must match the phone.",
+                    ),
+                    (
+                        "phone_thickness",
+                        ("phone thickness", "thickness"),
+                        "What phone thickness should the slot accept?",
+                        "The slot gap must fit the phone thickness.",
+                    ),
+                    (
+                        "slot_depth",
+                        ("slot depth", "depth"),
+                        "What slot depth should hold the phone?",
+                        "Slot depth controls how securely the phone sits in the holder.",
+                    ),
+                    (
+                        "front_lip_height",
+                        ("front lip", "lip height", "lip"),
+                        "What front lip height should retain the phone?",
+                        "The front lip prevents the phone from sliding out.",
+                    ),
+                    (
+                        "charging_cable_clearance",
+                        ("charging", "cable", "clearance"),
+                        "What charging-cable clearance should the holder leave?",
+                        "Cable clearance affects the functional cutout under the phone.",
+                    ),
+                ],
+            )
+            if "holder_angle" not in answered_parameter_ids and not self._has_number_near_keywords(request_text, _ANGLE_KEYWORDS):
+                questions.append(
+                    ParameterQuestion(
+                        parameter_id="holder_angle",
+                        question="What viewing angle should the holder use?",
+                        value_type="number",
+                        unit="degrees",
+                        options=[],
+                        reason="The support angle sets the phone tilt.",
+                    )
+                )
+            return questions
+
+        return []
+
+    @staticmethod
+    def _is_common_design(request_text: str) -> bool:
+        return (
+            "cube" in request_text
+            or "sphere" in request_text
+            or "ball" in request_text
+            or "cylinder" in request_text
+            or "mug" in request_text
+            or "coffee cup" in request_text
+            or "cup" in request_text
+            or "phone holder" in request_text
+            or ("phone" in request_text and "holder" in request_text)
+        )
+
+    def _missing_dimension_questions(
+        self,
+        request_text: str,
+        answered_parameter_ids: set[str],
+        specs: list[tuple[str, tuple[str, ...], str, str]],
+    ) -> list[ParameterQuestion]:
+        questions: list[ParameterQuestion] = []
+        for parameter_id, keywords, question, reason in specs:
+            if parameter_id in answered_parameter_ids:
+                continue
+            if self._has_linear_measurement_near_keywords(request_text, keywords):
+                continue
+            questions.append(self._dimension_question(parameter_id, question, reason))
+        return questions
+
+    @staticmethod
+    def _dimension_question(
+        parameter_id: str,
+        question: str,
+        reason: str,
+        *,
+        current_value: Any | None = None,
+        issue: str | None = None,
+    ) -> ParameterQuestion:
+        return ParameterQuestion(
+            parameter_id=parameter_id,
+            question=question,
+            value_type="dimension",
+            unit=None,
+            unit_options=["mm", "cm", "inch"],
+            options=[],
+            reason=reason,
+            current_value=current_value,
+            issue=issue,
+        )
+
+    @staticmethod
+    def _has_linear_measurement(request_text: str) -> bool:
+        return bool(_LINEAR_UNIT_PATTERN.search(request_text))
+
+    @staticmethod
+    def _linear_measurement_count(request_text: str) -> int:
+        return len(_LINEAR_UNIT_PATTERN.findall(request_text))
+
+    @staticmethod
+    def _has_linear_measurement_near_keywords(request_text: str, keywords: tuple[str, ...]) -> bool:
+        for match in _LINEAR_UNIT_PATTERN.finditer(request_text):
+            window_start = max(0, match.start() - 45)
+            window_end = min(len(request_text), match.end() + 45)
+            window = request_text[window_start:window_end]
+            if any(keyword in window for keyword in keywords):
+                return True
+        return False
+
+    @staticmethod
+    def _has_number_near_keywords(request_text: str, keywords: tuple[str, ...]) -> bool:
+        for match in _NUMBER_PATTERN.finditer(request_text):
+            window_start = max(0, match.start() - 35)
+            window_end = min(len(request_text), match.end() + 35)
+            window = request_text[window_start:window_end]
+            if any(keyword in window for keyword in keywords):
+                return True
+        return False
+
+    @staticmethod
+    def _parameter_id_from_window(window: str, index: int) -> str:
+        if "side" in window:
+            return "side_length"
+        if "height" in window or "tall" in window:
+            return "height"
+        if "width" in window or "wide" in window:
+            return "width"
+        if "depth" in window or "deep" in window:
+            return "depth"
+        if "diameter" in window:
+            return "diameter"
+        if "radius" in window:
+            return "radius"
+        if "thickness" in window:
+            return "thickness"
+        if "clearance" in window:
+            return "clearance"
+        return f"dimension_{index}"
 
     @staticmethod
     def _extract_json_object(raw_response: str) -> Any:

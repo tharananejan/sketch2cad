@@ -75,7 +75,7 @@ _PLANNER_UI = """<!doctype html>
       gap: 8px;
       font-weight: 650;
     }
-    textarea, input {
+    textarea, input, select {
       width: 100%;
       box-sizing: border-box;
       border: 1px solid #c8d0dc;
@@ -138,6 +138,17 @@ _PLANNER_UI = """<!doctype html>
       font-size: 13px;
       line-height: 1.4;
     }
+    .question-issue {
+      color: #a13a16;
+      font-size: 13px;
+      line-height: 1.4;
+      font-weight: 700;
+    }
+    .dimension-answer {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 120px;
+      gap: 8px;
+    }
   </style>
 </head>
 <body>
@@ -166,12 +177,35 @@ _PLANNER_UI = """<!doctype html>
     const submit = document.getElementById("submit");
     const questionsPanel = document.getElementById("questions-panel");
     let parameterAnswers = {};
+    let pendingQuestions = [];
+    let awaitingAnswers = false;
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (awaitingAnswers) {
+        output.textContent = "Answer the required parameters before generating a plan.";
+        renderParameterQuestions(pendingQuestions);
+        return;
+      }
       parameterAnswers = {};
+      pendingQuestions = [];
       await submitPlannerRequest();
     });
+
+    for (const field of [document.getElementById("request"), document.getElementById("expected-design")]) {
+      field.addEventListener("input", () => {
+        if (!awaitingAnswers) {
+          return;
+        }
+        awaitingAnswers = false;
+        parameterAnswers = {};
+        pendingQuestions = [];
+        questionsPanel.style.display = "none";
+        questionsPanel.replaceChildren();
+        submit.disabled = false;
+        output.textContent = "Design changed. Generate a plan to start the new parameter check.";
+      });
+    }
 
     async function submitPlannerRequest() {
       submit.disabled = true;
@@ -186,7 +220,8 @@ _PLANNER_UI = """<!doctype html>
           completed_steps: [],
           remaining_steps: [],
           errors: [],
-          parameter_answers: parameterAnswers
+          parameter_answers: parameterAnswers,
+          pending_questions: pendingQuestions
         }
       };
 
@@ -199,12 +234,17 @@ _PLANNER_UI = """<!doctype html>
         const data = await response.json();
         output.textContent = JSON.stringify(data, null, 2);
         if (data.status === "needs_parameters") {
+          pendingQuestions = data.questions || [];
+          awaitingAnswers = true;
           renderParameterQuestions(data.questions || []);
+        } else if (data.status === "planned") {
+          pendingQuestions = [];
+          awaitingAnswers = false;
         }
       } catch (error) {
         output.textContent = JSON.stringify({ error: String(error) }, null, 2);
       } finally {
-        submit.disabled = false;
+        submit.disabled = awaitingAnswers;
       }
     }
 
@@ -222,10 +262,20 @@ _PLANNER_UI = """<!doctype html>
         const field = createAnswerField(question);
         row.appendChild(field);
 
+        if (question.issue) {
+          const issue = document.createElement("span");
+          issue.className = "question-issue";
+          issue.textContent = `Issue: ${question.issue}`;
+          row.appendChild(issue);
+        }
+
         const meta = document.createElement("span");
         meta.className = "question-meta";
         const unitText = question.unit ? ` Unit: ${question.unit}.` : "";
-        meta.textContent = `${question.reason}${unitText}`;
+        const currentValueText = question.current_value !== null && question.current_value !== undefined
+          ? ` Current value: ${formatCurrentValue(question.current_value)}.`
+          : "";
+        meta.textContent = `${question.reason}${unitText}${currentValueText}`;
         row.appendChild(meta);
 
         answersForm.appendChild(row);
@@ -238,7 +288,7 @@ _PLANNER_UI = """<!doctype html>
 
       answersForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        parameterAnswers = collectParameterAnswers(answersForm);
+        parameterAnswers = { ...parameterAnswers, ...collectParameterAnswers(answersForm) };
         await submitPlannerRequest();
       });
 
@@ -246,6 +296,14 @@ _PLANNER_UI = """<!doctype html>
     }
 
     function createAnswerField(question) {
+      if (question.value_type === "dimension") {
+        return createDimensionAnswerField(question);
+      }
+
+      if (question.value_type === "boolean") {
+        return createBooleanAnswerField(question);
+      }
+
       if (question.value_type === "choice") {
         const select = document.createElement("select");
         select.dataset.parameterId = question.parameter_id;
@@ -256,36 +314,146 @@ _PLANNER_UI = """<!doctype html>
           optionElement.textContent = option;
           select.appendChild(optionElement);
         }
+        applyExistingScalarAnswer(select, question);
         return select;
       }
 
       const input = document.createElement("input");
       input.dataset.parameterId = question.parameter_id;
-      input.required = question.value_type !== "boolean";
+      input.required = true;
       if (question.value_type === "number" || question.value_type === "integer") {
         input.type = "number";
         input.step = question.value_type === "integer" ? "1" : "any";
-      } else if (question.value_type === "boolean") {
-        input.type = "checkbox";
       } else {
         input.type = "text";
       }
+      applyExistingScalarAnswer(input, question);
       return input;
+    }
+
+    function createBooleanAnswerField(question) {
+      const select = document.createElement("select");
+      select.dataset.parameterId = question.parameter_id;
+      select.dataset.answerKind = "boolean";
+      select.required = true;
+
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Select";
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      select.appendChild(placeholder);
+
+      for (const option of [
+        { value: "true", label: "Yes" },
+        { value: "false", label: "No" }
+      ]) {
+        const optionElement = document.createElement("option");
+        optionElement.value = option.value;
+        optionElement.textContent = option.label;
+        select.appendChild(optionElement);
+      }
+
+      const existingAnswer = parameterAnswers[question.parameter_id] ?? question.current_value;
+      if (typeof existingAnswer === "boolean") {
+        select.value = existingAnswer ? "true" : "false";
+      }
+      return select;
+    }
+
+    function createDimensionAnswerField(question) {
+      const group = document.createElement("div");
+      group.className = "dimension-answer";
+
+      const input = document.createElement("input");
+      input.type = "number";
+      input.step = "any";
+      input.required = true;
+      input.dataset.parameterId = question.parameter_id;
+      input.dataset.answerKind = "dimension-value";
+
+      const select = document.createElement("select");
+      select.required = true;
+      select.dataset.parameterId = question.parameter_id;
+      select.dataset.answerKind = "dimension-unit";
+
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Unit";
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      select.appendChild(placeholder);
+
+      for (const unit of question.unit_options || ["mm", "cm", "inch"]) {
+        const optionElement = document.createElement("option");
+        optionElement.value = unit;
+        optionElement.textContent = unit;
+        select.appendChild(optionElement);
+      }
+
+      applyExistingDimensionAnswer(input, select, question);
+      group.append(input, select);
+      return group;
     }
 
     function collectParameterAnswers(answersForm) {
       const answers = {};
-      for (const field of answersForm.querySelectorAll("[data-parameter-id]")) {
+      for (const field of answersForm.querySelectorAll("[data-answer-kind='dimension-value']")) {
         const parameterId = field.dataset.parameterId;
-        if (field.type === "checkbox") {
-          answers[parameterId] = field.checked;
-        } else if (field.type === "number") {
+        const unitField = answersForm.querySelector(`[data-parameter-id="${parameterId}"][data-answer-kind="dimension-unit"]`);
+        answers[parameterId] = {
+          value: Number.parseFloat(field.value),
+          unit: unitField ? unitField.value : ""
+        };
+      }
+
+      for (const field of answersForm.querySelectorAll("[data-answer-kind='boolean']")) {
+        answers[field.dataset.parameterId] = field.value === "true";
+      }
+
+      for (const field of answersForm.querySelectorAll("[data-parameter-id]:not([data-answer-kind])")) {
+        const parameterId = field.dataset.parameterId;
+        if (field.type === "number") {
           answers[parameterId] = field.step === "1" ? Number.parseInt(field.value, 10) : Number.parseFloat(field.value);
         } else {
           answers[parameterId] = field.value;
         }
       }
       return answers;
+    }
+
+    function applyExistingScalarAnswer(field, question) {
+      const existingAnswer = parameterAnswers[question.parameter_id] ?? question.current_value;
+      if (existingAnswer === null || existingAnswer === undefined) {
+        return;
+      }
+      field.value = String(existingAnswer);
+    }
+
+    function applyExistingDimensionAnswer(input, select, question) {
+      const existingAnswer = parameterAnswers[question.parameter_id] ?? question.current_value;
+      if (existingAnswer === null || existingAnswer === undefined) {
+        return;
+      }
+      if (typeof existingAnswer === "number") {
+        input.value = String(existingAnswer);
+        return;
+      }
+      if (typeof existingAnswer === "object") {
+        if (existingAnswer.value !== undefined && existingAnswer.value !== null) {
+          input.value = String(existingAnswer.value);
+        }
+        if (existingAnswer.unit) {
+          select.value = existingAnswer.unit;
+        }
+      }
+    }
+
+    function formatCurrentValue(value) {
+      if (value && typeof value === "object") {
+        return JSON.stringify(value);
+      }
+      return String(value);
     }
   </script>
 </body>

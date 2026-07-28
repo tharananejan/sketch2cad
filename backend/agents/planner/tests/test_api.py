@@ -20,27 +20,33 @@ def test_root_returns_planner_ui() -> None:
     assert "text/html" in response.headers["content-type"]
     assert "Sketch2CAD Frontier Planner" in response.text
     assert 'fetch("/planner"' in response.text
+    assert "checkbox" not in response.text
+    assert "awaitingAnswers" in response.text
+    assert "Answer the required parameters before generating a plan." in response.text
 
 
 def test_endpoint_returns_only_the_plan_response_shape() -> None:
-    response_text = json.dumps(
-        {
-            "status": "planned",
-            "steps": [
-                {
-                    "step_id": 1,
-                    "title": "Establish base geometry",
-                    "description": "Create the base geometry for the requested enclosure.",
-                    "depends_on": [],
-                }
-            ],
-        }
-    )
-    app.dependency_overrides[get_planner_service] = lambda: PlannerService(FakeProvider(response_text))
+    response_texts = [
+        json.dumps({"status": "ready", "questions": []}),
+        json.dumps(
+            {
+                "status": "planned",
+                "steps": [
+                    {
+                        "step_id": 1,
+                        "title": "Establish base geometry",
+                        "description": "Create the base geometry for the requested enclosure.",
+                        "depends_on": [],
+                    }
+                ],
+            }
+        ),
+    ]
+    app.dependency_overrides[get_planner_service] = lambda: PlannerService(FakeProvider(response_texts))
 
     try:
         client = TestClient(app)
-        response = client.post("/planner", json={"request": "Design a compact enclosure."})
+        response = client.post("/planner", json={"request": "Design a compact 120 mm by 80 mm by 40 mm enclosure."})
     finally:
         app.dependency_overrides.clear()
 
@@ -58,8 +64,9 @@ def test_endpoint_returns_needs_parameters_response_shape() -> None:
                 {
                     "parameter_id": "side_length",
                     "question": "What side length should the cube have?",
-                    "value_type": "number",
-                    "unit": "mm",
+                    "value_type": "dimension",
+                    "unit": None,
+                    "unit_options": ["mm", "cm", "inch"],
                     "options": [],
                     "reason": "A cube requires one equal side length.",
                 }
@@ -78,6 +85,42 @@ def test_endpoint_returns_needs_parameters_response_shape() -> None:
     assert set(response.json()) == {"status", "plan_id", "complexity", "questions"}
     assert response.json()["status"] == "needs_parameters"
     assert response.json()["questions"][0]["parameter_id"] == "side_length"
+    assert response.json()["questions"][0]["unit_options"] == ["mm", "cm", "inch"]
+
+
+def test_endpoint_does_not_plan_vague_prompt_after_ready_audit() -> None:
+    response_texts = [
+        json.dumps({"status": "ready", "questions": []}),
+        json.dumps(
+            {
+                "status": "planned",
+                "steps": [
+                    {
+                        "step_id": 1,
+                        "title": "Create mug",
+                        "description": "Create a mug before collecting dimensions.",
+                        "depends_on": [],
+                    }
+                ],
+            }
+        ),
+    ]
+    app.dependency_overrides[get_planner_service] = lambda: PlannerService(FakeProvider(response_texts))
+
+    try:
+        client = TestClient(app)
+        response = client.post("/planner", json={"request": "Design a coffee mug"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "needs_parameters"
+    assert {question["parameter_id"] for question in response.json()["questions"]} == {
+        "mug_height",
+        "outer_diameter",
+        "wall_thickness",
+        "handle_clearance",
+    }
 
 
 def test_endpoint_returns_json_error_envelope_for_empty_request() -> None:

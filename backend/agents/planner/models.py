@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, TypeAlias
+from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-ParameterValue: TypeAlias = str | int | float | bool
+DimensionUnit: TypeAlias = Literal["mm", "cm", "inch"]
+
+
+class DimensionAnswer(BaseModel):
+    """Dimension answer with a user-selected unit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    value: float
+    unit: DimensionUnit
+
+
+ParameterValue: TypeAlias = DimensionAnswer | str | int | float | bool | dict[str, Any]
 
 
 class PlannerContext(BaseModel):
@@ -20,6 +32,7 @@ class PlannerContext(BaseModel):
     remaining_steps: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     parameter_answers: dict[str, ParameterValue] = Field(default_factory=dict)
+    pending_questions: list["ParameterQuestion"] = Field(default_factory=list)
 
 
 class PlannerRequest(BaseModel):
@@ -49,20 +62,67 @@ class ParameterQuestion(BaseModel):
 
     parameter_id: str = Field(min_length=1, max_length=120)
     question: str = Field(min_length=1, max_length=500)
-    value_type: Literal["number", "integer", "string", "boolean", "choice"]
+    value_type: Literal["dimension", "number", "integer", "string", "boolean", "choice"]
     unit: str | None = Field(default=None, max_length=50)
+    unit_options: list[DimensionUnit] = Field(default_factory=list)
     options: list[str] = Field(default_factory=list)
     reason: str = Field(min_length=1, max_length=500)
+    current_value: Any | None = None
+    issue: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def default_dimension_units(self) -> "ParameterQuestion":
+        """Guarantee dimension questions can render the required unit dropdown."""
+
+        if self.value_type == "dimension" and not self.unit_options:
+            self.unit_options = ["mm", "cm", "inch"]
+        return self
 
 
-class PlanDraft(BaseModel):
-    """Internal response schema required from the LLM provider."""
+class ParameterAuditDraft(BaseModel):
+    """Internal parameter-audit schema required from the LLM provider."""
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["planned", "needs_parameters", "unsupported"]
-    steps: list[PlanStep] = Field(default_factory=list)
+    status: Literal["ready", "needs_parameters", "unsupported"]
     questions: list[ParameterQuestion] = Field(default_factory=list)
+    reason: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_draft(self) -> "ParameterAuditDraft":
+        """Enforce a complete audit, parameter question set, or rejection."""
+
+        if self.status == "unsupported":
+            if not self.reason or not self.reason.strip():
+                raise ValueError("Unsupported responses must include a reason.")
+            if self.questions:
+                raise ValueError("Unsupported responses cannot include parameter questions.")
+            return self
+
+        if self.reason:
+            raise ValueError("Only unsupported responses can include a reason.")
+
+        if self.status == "needs_parameters":
+            if not self.questions:
+                raise ValueError("Parameter question responses must include at least one question.")
+
+            parameter_ids = [question.parameter_id for question in self.questions]
+            if len(parameter_ids) != len(set(parameter_ids)):
+                raise ValueError("Parameter question IDs must be unique.")
+            return self
+
+        if self.questions:
+            raise ValueError("Ready responses cannot include parameter questions.")
+        return self
+
+
+class PlanDraft(BaseModel):
+    """Internal plan schema required from the LLM provider."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["planned", "unsupported"]
+    steps: list[PlanStep] = Field(default_factory=list)
     reason: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
@@ -74,28 +134,12 @@ class PlanDraft(BaseModel):
                 raise ValueError("Unsupported responses must include a reason.")
             if self.steps:
                 raise ValueError("Unsupported responses cannot include modeling steps.")
-            if self.questions:
-                raise ValueError("Unsupported responses cannot include parameter questions.")
             return self
 
         if self.reason:
             raise ValueError("Only unsupported responses can include a reason.")
-
-        if self.status == "needs_parameters":
-            if self.steps:
-                raise ValueError("Parameter question responses cannot include modeling steps.")
-            if not self.questions:
-                raise ValueError("Parameter question responses must include at least one question.")
-
-            parameter_ids = [question.parameter_id for question in self.questions]
-            if len(parameter_ids) != len(set(parameter_ids)):
-                raise ValueError("Parameter question IDs must be unique.")
-            return self
-
         if not self.steps:
             raise ValueError("Planned responses must include at least one modeling step.")
-        if self.questions:
-            raise ValueError("Planned responses cannot include parameter questions.")
 
         step_ids = [step.step_id for step in self.steps]
         expected_ids = list(range(1, len(self.steps) + 1))

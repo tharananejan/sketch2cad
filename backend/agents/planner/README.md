@@ -4,7 +4,7 @@ The Frontier Planning Agent converts already-classified **complex** Sketch2CAD r
 
 ## Architecture
 
-`POST /planner` calls `PlannerService`, which builds the dedicated CAD-planning prompt, passes it to an injected `LLMProvider`, validates the returned JSON, and emits the strict public plan schema. The service owns validation, deterministic plan IDs, prompt construction, JSON parsing, and output safety. Provider adapters own only HTTP transport.
+`POST /planner` calls `PlannerService`, which first audits parameters and only then asks for a CAD plan. The service owns validation, deterministic plan IDs, prompt construction, JSON parsing, pending-question gating, underspecified-prompt fallback questions, and output safety. Provider adapters own only HTTP transport.
 
 Development and test deployments use `GroqProvider`; production switches to `DeepSeekProvider` with configuration only. Both implement the same OpenAI-compatible `LLMProvider` interface. A new provider can be added without changing `PlannerService`.
 
@@ -20,12 +20,26 @@ The agent consumes the context supplied by n8n but never mutates context or shar
     "completed_steps": [],
     "remaining_steps": [],
     "errors": [],
-    "parameter_answers": {}
+    "parameter_answers": {},
+    "pending_questions": []
   }
 }
 ```
 
-`context` is optional. Its fields default to an empty design description, empty arrays, and an empty `parameter_answers` object. Follow-up requests should keep the same design request and add answers keyed by the returned `parameter_id`.
+`context` is optional. Its fields default to an empty design description, empty arrays, an empty `parameter_answers` object, and empty `pending_questions`. Follow-up requests should keep the same design request, send the last returned questions as `pending_questions`, and add answers keyed by `parameter_id`.
+
+Dimension answers must include a value and a user-selected unit. The browser UI renders dimension units as a dropdown with `mm`, `cm`, and `inch`; boolean questions are also rendered as dropdowns, not checkboxes.
+
+```json
+{
+  "parameter_answers": {
+    "side_length": {
+      "value": 40,
+      "unit": "mm"
+    }
+  }
+}
+```
 
 ## Response Schemas
 
@@ -60,16 +74,19 @@ When CAD-critical details are missing, the planner returns questions instead of 
     {
       "parameter_id": "side_length",
       "question": "What side length should the cube have?",
-      "value_type": "number",
-      "unit": "mm",
+      "value_type": "dimension",
+      "unit": null,
+      "unit_options": ["mm", "cm", "inch"],
       "options": [],
-      "reason": "A cube requires one equal side length."
+      "reason": "A cube requires one equal side length.",
+      "current_value": null,
+      "issue": null
     }
   ]
 }
 ```
 
-The orchestrator should collect answers, place them in `context.parameter_answers`, and call `/planner` again.
+The orchestrator should collect answers, place them in `context.parameter_answers`, include the returned questions in `context.pending_questions`, and call `/planner` again. If only some questions are answered, the service returns only the remaining unanswered or invalid questions and never generates plan steps. If the audit model marks a clearly vague or partially dimensioned prompt as ready, the service still returns fallback questions instead of calling the planning prompt.
 
 ## Error Schema
 
@@ -127,7 +144,7 @@ python -m pytest backend/agents/planner/tests
 
 ## Prompt Design
 
-The dedicated prompt instructs the provider to think like a CAD engineer, preserve engineering intent, and first check for missing CAD-critical parameters. It requires JSON-only output and either a valid plan draft, a valid parameter-question draft, or an explicit unsupported declaration. It explicitly bans Python, scripts, API calls, FreeCAD APIs, CAD syntax, macros, and explanatory prose.
+The dedicated prompts instruct the provider to think like a CAD engineer, preserve engineering intent, and first check for missing or invalid CAD-critical parameters. The audit prompt can return only `ready`, `needs_parameters`, or `unsupported`; the planning prompt runs only after audit readiness and can return only `planned` or `unsupported`. Both prompts explicitly ban Python, scripts, API calls, FreeCAD APIs, CAD syntax, macros, and explanatory prose.
 
 The service first performs strict JSON parsing. If that fails, it makes one deterministic extraction-and-parse retry for fenced or prefixed JSON. A second failure returns `malformed_model_response`; it never invents a fallback plan.
 
