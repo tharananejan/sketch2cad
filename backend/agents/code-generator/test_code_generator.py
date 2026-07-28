@@ -18,7 +18,7 @@ from services.agent_logic import _load_system_prompt
 class TestCodeGeneratorComponents(unittest.TestCase):
     def test_settings(self):
         settings = get_settings()
-        self.assertEqual(settings.LLM_MODEL, "qwen2.5-coder:0.5b")
+        self.assertEqual(settings.LLM_MODEL, "llama-3.3-70b-versatile")
         self.assertTrue(os.path.exists(settings.KNOWLEDGE_DIR))
         self.assertTrue(os.path.exists(settings.CHROMA_PERSIST_DIR))
 

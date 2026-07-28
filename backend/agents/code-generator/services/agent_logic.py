@@ -5,13 +5,14 @@ and code cleaning/validation to generate FreeCAD macros.
 """
 
 import os
+import json
 import logging
-import requests
-from typing import Tuple, List
+from typing import Tuple, List, Union
+from groq import Groq, GroqError
 
 from deps import Settings, get_settings
 from services.rag_retriever import retrieve_context
-from tools.error_parser import extract_python_code, validate_python_syntax
+from tools.error_parser import validate_python_syntax
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +35,11 @@ def _load_system_prompt(settings: Settings) -> str:
     return FALLBACK_SYSTEM_PROMPT
 
 
-def generate_cad_code(step: str, settings: Settings = None) -> Tuple[str, List[str]]:
+def generate_cad_code(step: str, settings: Settings = None) -> Tuple[Union[List[str], str], List[str]]:
     """
     Generate FreeCAD Python code for a given instruction step using RAG + local SLM.
     Returns:
-        tuple[str, list[str]]: (generated_python_code, list_of_rag_sources)
+        tuple[list[str] | str, list[str]]: (generated_python_code_array, list_of_rag_sources)
     """
     if settings is None:
         settings = get_settings()
@@ -59,55 +60,61 @@ def generate_cad_code(step: str, settings: Settings = None) -> Tuple[str, List[s
     user_prompt = (
         f"Reference Context from Knowledge Base:\n{context_str}\n\n"
         f"User Instruction Step:\n{step}\n\n"
-        f"If the Reference Context contains the knowledge for this step, generate FreeCAD Python macro code. Otherwise output ONLY: step not available"
+        f"If the Reference Context contains the knowledge for this step, generate FreeCAD Python macro code. Otherwise output ONLY a JSON object with an error key: {{\"error\": \"step not available\"}}"
     )
 
-    # 3. Query Ollama API
-    url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
-    payload = {
-        "model": settings.LLM_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "stream": False,
-        "options": {
-            "temperature": 0.1,  # Low temperature for deterministic code generation
-        },
-    }
-
-    try:
-        response = requests.post(url, json=payload, timeout=120)
-        response.raise_for_status()
-        data = response.json()
-        raw_output = data.get("message", {}).get("content", "").strip()
-    except requests.ConnectionError:
+    # 3. Query Groq API
+    if not settings.GROQ_API_KEY:
         error_code = (
-            "# [ERROR] Cannot connect to local Ollama server.\n"
-            f"# Please ensure Ollama is running at {settings.OLLAMA_BASE_URL} with model {settings.LLM_MODEL}.\n"
+            "# [ERROR] GROQ_API_KEY is not set.\n"
+            "# Please set the GROQ_API_KEY environment variable.\n"
             f"# Instruction was: {step}"
         )
         return error_code, sources
-    except requests.Timeout:
-        error_code = "# [ERROR] Ollama generation request timed out.\n" f"# Instruction was: {step}"
+
+    try:
+        client = Groq(api_key=settings.GROQ_API_KEY)
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            model=settings.LLM_MODEL,
+            temperature=0.1,  # Low temperature for deterministic code generation
+            timeout=120,
+            max_tokens=4096,
+            response_format={"type": "json_object"},
+        )
+        raw_output = chat_completion.choices[0].message.content.strip()
+    except GroqError as e:
+        error_code = f"# [ERROR] Groq API error: {str(e)}\n" f"# Instruction was: {step}"
         return error_code, sources
     except Exception as e:
-        error_code = f"# [ERROR] Ollama API request failed: {str(e)}\n" f"# Instruction was: {step}"
+        error_code = f"# [ERROR] Generation request failed: {str(e)}\n" f"# Instruction was: {step}"
         return error_code, sources
 
     if not raw_output or "step not available" in raw_output.lower():
         logger.warning(f"LLM indicated step not available for: '{step}'")
         return "step not available", sources
 
-    # 4. Clean and validate code
-    cleaned_code = extract_python_code(raw_output)
-    if cleaned_code.strip().lower() == "step not available" or "step not available" in cleaned_code.lower():
+    # 4. Parse JSON
+    try:
+        parsed = json.loads(raw_output)
+        if "error" in parsed:
+            return parsed["error"], sources
+        code_array = parsed.get("code", [])
+    except json.JSONDecodeError:
+        logger.warning(f"Failed to parse JSON from LLM: {raw_output}")
+        return "step not available", sources
+        
+    if not code_array:
         return "step not available", sources
 
-    is_valid, syntax_error = validate_python_syntax(cleaned_code)
+    # Join the array to validate syntax
+    full_code = "\n".join(code_array)
+    is_valid, syntax_error = validate_python_syntax(full_code)
     if not is_valid:
         logger.warning(f"Generated code has syntax issue: {syntax_error}")
-        # Append a comment indicating syntax check warning
-        cleaned_code += f"\n\n# WARNING: AST Syntax Check Issue -> {syntax_error}"
+        code_array.append(f"\n# WARNING: AST Syntax Check Issue -> {syntax_error}")
 
-    return cleaned_code, sources
+    return code_array, sources

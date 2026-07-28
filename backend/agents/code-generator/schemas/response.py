@@ -9,10 +9,10 @@ from pydantic import BaseModel, Field
 class CodeGenerateResponse(BaseModel):
     """Payload representing the generated FreeCAD Python code and reference sources."""
 
-    code: str = Field(
+    code: list[str] = Field(
         ...,
-        description="The generated FreeCAD Python script or command for the requested step.",
-        examples=["import FreeCAD as App\nimport Part\ndoc = App.ActiveDocument\nbox = doc.addObject('Part::Box', 'Box')\nbox.Length = 10.0\ndoc.recompute()"],
+        description="The generated FreeCAD Python script or command for the requested step, as an array of strings.",
+        examples=[["import FreeCAD as App", "import Part", "doc = App.ActiveDocument", "box = doc.addObject('Part::Box', 'Box')", "box.Length = 10.0", "doc.recompute()"]],
     )
     sources: list[str] = Field(
         default_factory=list,

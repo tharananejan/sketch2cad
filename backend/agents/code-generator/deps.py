@@ -4,15 +4,18 @@ Dependencies and configuration settings for the Code Generator Agent.
 
 import os
 from functools import lru_cache
+from dotenv import load_dotenv, find_dotenv
+
+# Load environment variables from a .env file (looks in current dir and parent dirs)
+load_dotenv(find_dotenv())
 
 
 class Settings:
     """Configuration settings loaded from environment variables with sensible defaults."""
 
     def __init__(self) -> None:
-        self.OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.LLM_MODEL: str = os.getenv("LLM_MODEL", "qwen2.5-coder:0.5b")
-        self.EMBED_MODEL: str = os.getenv("EMBED_MODEL", "nomic-embed-text")
+        self.GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+        self.LLM_MODEL: str = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
 
         # RAG Chunking and Retrieval parameters
         self.CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "500"))

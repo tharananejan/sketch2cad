@@ -1,6 +1,6 @@
 # Code Generator Agent
 
-**Purpose:** Local Code Generation Agent (Qwen 2.5 Coder 0.5B via Ollama).
+**Purpose:** Cloud Code Generation Agent (Qwen 2.5 Coder 32B via Groq API).
 
 **Note:** Translates sequential text instructions and steps strictly into executable FreeCAD Python macros.
 
@@ -8,10 +8,10 @@
 
 To run the Code Generator agent locally:
 
-1. Ensure Ollama is installed, running, and the models are pulled:
+1. Obtain a Groq API key and add it to the `.env` file at the root of the project:
 ```bash
-ollama pull qwen2.5-coder:0.5b
-ollama pull nomic-embed-text
+# In your .env file
+GROQ_API_KEY=your_groq_api_key_here
 ```
 
 2. Install dependencies:

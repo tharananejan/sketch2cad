@@ -10,7 +10,7 @@ from typing import Tuple, List
 
 try:
     import chromadb
-    from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
+    from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
     CHROMADB_AVAILABLE = True
 except ImportError:
     CHROMADB_AVAILABLE = False
@@ -26,13 +26,10 @@ _collection = None
 
 
 def _get_embedding_function(settings: Settings):
-    """Create Ollama embedding function."""
+    """Create default embedding function."""
     if not CHROMADB_AVAILABLE:
         return None
-    return OllamaEmbeddingFunction(
-        model_name=settings.EMBED_MODEL,
-        url=settings.OLLAMA_BASE_URL,
-    )
+    return DefaultEmbeddingFunction()
 
 
 def init_store(settings: Settings):
