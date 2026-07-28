@@ -16,7 +16,7 @@ router = APIRouter(prefix="/code-generator", tags=["code-generator"])
 
 
 @router.post("/generate", response_model=CodeGenerateResponse, summary="Generate FreeCAD Python code for a CAD step")
-async def generate_code(
+def generate_code(
     request: CodeGenerateRequest,
     settings: Settings = Depends(get_settings),
 ) -> CodeGenerateResponse:
@@ -34,7 +34,7 @@ async def generate_code(
 
 
 @router.get("/health", summary="Health check endpoint")
-async def health_check():
+def health_check():
     """Verify that the Code Generator service is running."""
     return {"status": "ok", "service": "code-generator"}
 
@@ -49,17 +49,18 @@ app.include_router(router)
 
 # Also expose /generate at root level for flexibility in n8n webhook routing
 @app.post("/generate", response_model=CodeGenerateResponse, tags=["default"])
-async def generate_code_root(
+def generate_code_root(
     request: CodeGenerateRequest,
     settings: Settings = Depends(get_settings),
 ) -> CodeGenerateResponse:
-    return await generate_code(request, settings)
+    return generate_code(request, settings)
 
 
 @app.get("/health", tags=["default"])
-async def health_check_root():
-    return await health_check()
+def health_check_root():
+    return health_check()
 
 
 if __name__ == "__main__":
-    uvicorn.run("code-generator-router:app", host="0.0.0.0", port=8001, reload=True)
+    uvicorn.run("code-generator-router:app", host="0.0.0.0", port=8001, reload=False)
+
