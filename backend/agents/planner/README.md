@@ -26,7 +26,7 @@ The agent consumes the context supplied by n8n but never mutates context or shar
 }
 ```
 
-`context` is optional. Its fields default to an empty design description, empty arrays, an empty `parameter_answers` object, and empty `pending_questions`. Follow-up requests should keep the same design request, send the last returned questions as `pending_questions`, and add answers keyed by `parameter_id`.
+`context` is optional. Its fields default to an empty design description, empty arrays, an empty `parameter_answers` object, and empty `pending_questions`. Follow-up requests must keep the same design request, send the last returned questions as `pending_questions`, and add answers keyed by `parameter_id`.
 
 Dimension answers must include a value and a user-selected unit. The browser UI renders dimension units as a dropdown with `mm`, `cm`, and `inch`; boolean questions are also rendered as dropdowns, not checkboxes.
 
@@ -86,7 +86,46 @@ When CAD-critical details are missing, the planner returns questions instead of 
 }
 ```
 
-The orchestrator should collect answers, place them in `context.parameter_answers`, include the returned questions in `context.pending_questions`, and call `/planner` again. If only some questions are answered, the service returns only the remaining unanswered or invalid questions and never generates plan steps. If the audit model marks a clearly vague or partially dimensioned prompt as ready, the service still returns fallback questions instead of calling the planning prompt.
+## Parameter Follow-up Flow
+
+The orchestrator should collect answers, place them in `context.parameter_answers`, include the returned questions in `context.pending_questions`, and call `/planner` again.
+
+The planner has a strict gate before it can return `status: "planned"`:
+
+1. If any pending question is unanswered, the response remains `needs_parameters` and the audit or planning model is not called.
+2. If an answer is invalid, such as a non-positive dimension or a dimension without a unit, the response remains `needs_parameters` with an `issue` and `current_value` for that parameter only.
+3. Once all pending answers are valid, the audit runs. If it discovers a new required parameter, only that new parameter is returned.
+4. If an audit response repeats a parameter that already has a valid answer, the duplicate question is ignored. Explicit correction questions remain when the audit identifies a cross-parameter conflict.
+5. The planning model runs only after the audit is ready and no missing or invalid parameters remain.
+
+For example, a cube flow should preserve the supplied answer instead of asking for `side_length` again:
+
+```json
+{
+  "request": "Generate a cube",
+  "context": {
+    "parameter_answers": {
+      "side_length": {
+        "value": 40,
+        "unit": "mm"
+      }
+    },
+    "pending_questions": [
+      {
+        "parameter_id": "side_length",
+        "question": "What side length should the cube have?",
+        "value_type": "dimension",
+        "unit": null,
+        "unit_options": ["mm", "cm", "inch"],
+        "options": [],
+        "reason": "A cube requires one equal side length."
+      }
+    ]
+  }
+}
+```
+
+The browser test UI preserves `pending_questions` and previously valid `parameter_answers` between follow-up requests. Its primary plan button is disabled while answers are pending; modifying the design request starts a new parameter-check cycle.
 
 ## Error Schema
 
