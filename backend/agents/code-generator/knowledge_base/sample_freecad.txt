@@ -1,0 +1,58 @@
+FreeCAD Python Scripting Reference and Macros
+
+1. General Setup and Document Management:
+Always get the active document or create a new one if None:
+import FreeCAD as App
+import Part
+doc = App.ActiveDocument
+if doc is None:
+    doc = App.newDocument("Design")
+Always call doc.recompute() after adding or modifying objects in the scene.
+
+2. Creating a Cube or Box:
+To make a cube or box with specific dimensions in millimeters (mm):
+box = doc.addObject("Part::Box", "Box")
+box.Length = 10.0
+box.Width = 10.0
+box.Height = 10.0
+doc.recompute()
+
+3. Creating a Cylinder:
+To make a cylinder with a given radius and height:
+cylinder = doc.addObject("Part::Cylinder", "Cylinder")
+cylinder.Radius = 5.0
+cylinder.Height = 20.0
+doc.recompute()
+
+4. Creating a Sphere:
+To make a sphere with a given radius:
+sphere = doc.addObject("Part::Sphere", "Sphere")
+sphere.Radius = 10.0
+doc.recompute()
+
+5. Creating a Cone:
+To make a cone with radius1 (base), radius2 (top), and height:
+cone = doc.addObject("Part::Cone", "Cone")
+cone.Radius1 = 10.0
+cone.Radius2 = 0.0
+cone.Height = 15.0
+doc.recompute()
+
+6. Boolean Cut Operation:
+To cut object B from object A:
+cut = doc.addObject("Part::Cut", "Cut")
+cut.Base = doc.getObject("Box")
+cut.Tool = doc.getObject("Cylinder")
+doc.recompute()
+
+7. Boolean Fuse Operation:
+To merge or fuse object A and object B:
+fuse = doc.addObject("Part::MultiFuse", "Fuse")
+fuse.Shapes = [doc.getObject("Box"), doc.getObject("Cylinder")]
+doc.recompute()
+
+8. Moving an Object:
+To move or translate an object to a new location in 3D space:
+# Assuming 'box' is an existing object
+box.Placement.Base = App.Vector(10.0, 20.0, 30.0) # Moves object to X=10, Y=20, Z=30
+doc.recompute()
