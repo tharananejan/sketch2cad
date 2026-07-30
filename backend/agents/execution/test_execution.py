@@ -16,12 +16,12 @@ if str(EXECUTION_DIR) not in sys.path:
 
 
 def load_router():
-    """Load the hyphenated router module from its file path."""
+    """Load the importable execution core from its file path."""
     spec = importlib.util.spec_from_file_location(
-        "execution_router_under_test", EXECUTION_DIR / "execution-router.py"
+        "execution_router_under_test", EXECUTION_DIR / "execution_router.py"
     )
     if spec is None or spec.loader is None:
-        raise RuntimeError("Unable to load execution-router.py for testing.")
+        raise RuntimeError("Unable to load execution_router.py for testing.")
 
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -45,6 +45,9 @@ class ExecutionRouterTests(unittest.TestCase):
     def read_output(self):
         return json.loads(self.router.OUTPUT_PATH.read_text(encoding="utf-8"))
 
+    def run_headless_contract(self):
+        self.router.write_output(self.router.execute(self.router.load_input()))
+
     def test_success_preserves_stdout_and_removes_temp_script(self):
         completed = subprocess.CompletedProcess(
             args=[], returncode=0, stdout=b"Created cube\r\n", stderr=b""
@@ -53,7 +56,7 @@ class ExecutionRouterTests(unittest.TestCase):
         with patch.object(
             self.router, "find_freecad_cli", return_value="C:/FreeCAD/freecadcmd.exe"
         ), patch.object(self.router.subprocess, "run", return_value=completed) as run:
-            self.router.main()
+            self.run_headless_contract()
 
         self.assertEqual(
             self.read_output(),
@@ -81,7 +84,7 @@ class ExecutionRouterTests(unittest.TestCase):
         with patch.object(self.router, "find_freecad_cli", return_value="freecadcmd"), patch.object(
             self.router.subprocess, "run", return_value=completed
         ):
-            self.router.main()
+            self.run_headless_contract()
 
         self.assertEqual(
             self.read_output(),
@@ -109,7 +112,7 @@ class ExecutionRouterTests(unittest.TestCase):
         with patch.object(self.router, "find_freecad_cli", return_value="freecadcmd"), patch.object(
             self.router.subprocess, "run", return_value=completed
         ):
-            self.router.main()
+            self.run_headless_contract()
 
         self.assertEqual(
             self.read_output(),
@@ -121,6 +124,33 @@ class ExecutionRouterTests(unittest.TestCase):
             },
         )
         self.assertFalse(self.router.TEMP_SCRIPT_PATH.exists())
+
+    def test_successful_preflight_launches_the_generated_code_in_freecad_gui(self):
+        code = "print('generated code')\n"
+        payload = {"step_id": 42, "code": code}
+        self.router.GUI_MACROS_DIRECTORY = self.temp_path / "macros"
+        preflight_result = {
+            "step_id": 42,
+            "status": "SUCCESS",
+            "stdout": "Preflight passed",
+            "error_trace": None,
+        }
+
+        with patch.object(self.router, "execute", return_value=preflight_result), patch.object(
+            self.router, "find_freecad_gui", return_value="C:/FreeCAD/FreeCAD.exe"
+        ), patch.object(self.router.subprocess, "Popen") as popen:
+            result = self.router.execute_and_display(payload)
+
+        macro_path = self.router.GUI_MACROS_DIRECTORY / "step-42.FCMacro"
+        self.assertEqual(macro_path.read_text(encoding="utf-8"), code)
+        popen.assert_called_once_with(
+            ["C:/FreeCAD/FreeCAD.exe", str(macro_path)],
+            stdout=self.router.subprocess.DEVNULL,
+            stderr=self.router.subprocess.DEVNULL,
+            shell=False,
+        )
+        self.assertEqual(result["status"], "SUCCESS")
+        self.assertIn("Opened the generated model in FreeCAD GUI.", result["stdout"])
 
     def test_zero_exit_script_exception_is_reported_as_failure(self):
         completed = subprocess.CompletedProcess(
@@ -136,7 +166,7 @@ class ExecutionRouterTests(unittest.TestCase):
         with patch.object(self.router, "find_freecad_cli", return_value="freecadcmd"), patch.object(
             self.router.subprocess, "run", return_value=completed
         ):
-            self.router.main()
+            self.run_headless_contract()
 
         self.assertEqual(
             self.read_output(),
@@ -163,7 +193,7 @@ class ExecutionRouterTests(unittest.TestCase):
         with patch.object(self.router, "find_freecad_cli", return_value="freecadcmd"), patch.object(
             self.router.subprocess, "run", return_value=completed
         ):
-            self.router.main()
+            self.run_headless_contract()
 
         self.assertEqual(
             self.read_output(),
@@ -180,7 +210,7 @@ class ExecutionRouterTests(unittest.TestCase):
         with patch.object(self.router, "find_freecad_cli", return_value=None), patch.object(
             self.router.subprocess, "run"
         ) as run:
-            self.router.main()
+            self.run_headless_contract()
 
         self.assertEqual(
             self.read_output(),
@@ -205,7 +235,7 @@ class ExecutionRouterTests(unittest.TestCase):
         with patch.object(self.router, "find_freecad_cli", return_value="freecadcmd"), patch.object(
             self.router.subprocess, "run", side_effect=timeout_error
         ):
-            self.router.main()
+            self.run_headless_contract()
 
         self.assertEqual(
             self.read_output(),
@@ -252,6 +282,18 @@ class DependencyTests(unittest.TestCase):
             side_effect=lambda candidate: candidate == expected_path,
         ):
             self.assertEqual(deps.find_freecad_cli(), expected_path)
+
+    def test_find_freecad_gui_uses_configured_path_first(self):
+        import deps
+
+        configured_path = r"C:\Custom\FreeCAD.exe"
+        with patch.dict(deps.os.environ, {"FREECAD_GUI_PATH": configured_path}, clear=True), patch.object(
+            deps, "_is_valid_cli_path", return_value=True
+        ) as is_valid, patch.object(deps.shutil, "which") as which:
+            self.assertEqual(deps.find_freecad_gui(), configured_path)
+
+        is_valid.assert_called_once_with(configured_path)
+        which.assert_not_called()
 
 
 if __name__ == "__main__":
