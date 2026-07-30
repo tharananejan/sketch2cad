@@ -35,7 +35,7 @@ def test_endpoint_returns_only_the_plan_response_shape() -> None:
                     {
                         "step_id": 1,
                         "title": "Establish base geometry",
-                        "description": "Create the base geometry for the requested enclosure.",
+                        "description": "Create the base geometry for the requested part.",
                         "depends_on": [],
                     }
                 ],
@@ -46,7 +46,8 @@ def test_endpoint_returns_only_the_plan_response_shape() -> None:
 
     try:
         client = TestClient(app)
-        response = client.post("/planner", json={"request": "Design a compact 120 mm by 80 mm by 40 mm enclosure."})
+        # Use a non-common design with 3+ measurements so fallback is empty
+        response = client.post("/planner", json={"request": "Design a compact 120 mm by 80 mm by 40 mm mounting plate."})
     finally:
         app.dependency_overrides.clear()
 

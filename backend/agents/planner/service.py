@@ -44,6 +44,10 @@ _LINEAR_UNIT_PATTERN = re.compile(
     r"\b\d+(?:\.\d+)?\s*(?:mm|millimeter|millimeters|cm|centimeter|centimeters|in|inch|inches)\b",
     re.IGNORECASE,
 )
+_VOLUME_UNIT_PATTERN = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(?:ml|milliliter|milliliters|l|liter|liters|oz|ounce|ounces)\b",
+    re.IGNORECASE,
+)
 _NUMBER_PATTERN = re.compile(r"\b\d+(?:\.\d+)?\b", re.IGNORECASE)
 _DIMENSION_KEYWORDS = (
     "height",
@@ -79,6 +83,8 @@ class PlannerService:
             raise InvalidRequestError("The request must not be empty.")
 
         plan_id = self._derive_plan_id(planner_request)
+
+        # Stage 1: Check unanswered pending questions (from previous rounds)
         pending_questions = self._questions_requiring_answers(
             planner_request.context.pending_questions,
             planner_request.context.parameter_answers,
@@ -90,6 +96,22 @@ class PlannerService:
                 questions=pending_questions,
             )
 
+        # Stage 2: Deterministic parameter questions (reliable, always consistent)
+        # Runs BEFORE the audit so known designs always get the right questions.
+        deterministic_questions = self._deterministic_parameter_questions(planner_request)
+        if deterministic_questions:
+            unresolved = self._questions_requiring_answers(
+                deterministic_questions,
+                planner_request.context.parameter_answers,
+            )
+            if unresolved:
+                return NeedsParametersResponse(
+                    plan_id=plan_id,
+                    complexity="complex",
+                    questions=unresolved,
+                )
+
+        # Stage 3: Audit LLM for validation and uncovered parameters
         user_prompt = self._build_user_prompt(planner_request)
         audit_response = self._provider.generate(
             system_prompt=PLANNER_AUDIT_SYSTEM_PROMPT,
@@ -119,14 +141,6 @@ class PlannerService:
                     complexity="complex",
                     questions=unresolved_audit_questions,
                 )
-
-        fallback_questions = self._fallback_questions_for_underspecified_ready_request(planner_request)
-        if fallback_questions:
-            return NeedsParametersResponse(
-                plan_id=plan_id,
-                complexity="complex",
-                questions=fallback_questions,
-            )
 
         plan_response = self._provider.generate(
             system_prompt=PLANNER_PLANNING_SYSTEM_PROMPT,
@@ -273,11 +287,15 @@ class PlannerService:
         except ValidationError:
             return None
 
-    def _fallback_questions_for_underspecified_ready_request(
+    def _deterministic_parameter_questions(
         self,
         planner_request: PlannerRequest,
     ) -> list[ParameterQuestion]:
-        """Protect against an audit model marking clearly underspecified prompts ready."""
+        """Generate deterministic parameter questions for underspecified designs.
+
+        Runs before the audit to ensure known designs (cube, mug, bottle, etc.)
+        always get the right questions regardless of LLM consistency.
+        """
 
         request_text = planner_request.request.lower()
         answered_parameter_ids = set(planner_request.context.parameter_answers)
@@ -499,6 +517,164 @@ class PlannerService:
                 )
             return questions
 
+        if "bottle" in request_text:
+            questions = self._missing_dimension_questions(
+                request_text,
+                answered_parameter_ids,
+                [
+                    (
+                        "bottle_height",
+                        ("height", "tall"),
+                        "What overall height should the bottle have?",
+                        "The bottle height is a key dimension for shape and capacity calculations.",
+                    ),
+                    (
+                        "body_diameter",
+                        ("body diameter", "diameter", "outer", "wide", "width"),
+                        "What body diameter should the bottle have?",
+                        "The main body diameter defines the bottle's main shape and volume.",
+                    ),
+                    (
+                        "neck_diameter",
+                        ("neck diameter", "neck", "top diameter", "mouth"),
+                        "What neck diameter should the bottle have?",
+                        "The neck diameter is smaller than the body diameter and defines the opening.",
+                    ),
+                    (
+                        "neck_height",
+                        ("neck height",),
+                        "What neck height should the bottle have?",
+                        "The neck height defines the top vertical section before the body transition.",
+                    ),
+                    (
+                        "wall_thickness",
+                        ("wall", "thickness"),
+                        "What wall thickness should the bottle have?",
+                        "Wall thickness is required to calculate the internal cavity and maintain capacity.",
+                    ),
+                ],
+            )
+            if "target_capacity" not in answered_parameter_ids and not self._has_volume_measurement(request_text):
+                questions.append(
+                    ParameterQuestion(
+                        parameter_id="target_capacity",
+                        question="What target capacity (volume) should the bottle hold?",
+                        value_type="number",
+                        unit="ml",
+                        options=[],
+                        reason="The target capacity is required to calculate the internal volume and maintain it.",
+                    )
+                )
+            return questions
+
+        if "enclosure" in request_text or "housing" in request_text:
+            return self._missing_dimension_questions(
+                request_text,
+                answered_parameter_ids,
+                [
+                    (
+                        "enclosure_width",
+                        ("width", "wide"),
+                        "What width should the enclosure have?",
+                        "The enclosure width defines the main horizontal dimension.",
+                    ),
+                    (
+                        "enclosure_height",
+                        ("height", "tall"),
+                        "What height should the enclosure have?",
+                        "The enclosure height defines the vertical dimension.",
+                    ),
+                    (
+                        "enclosure_depth",
+                        ("depth", "deep"),
+                        "What depth should the enclosure have?",
+                        "The enclosure depth defines the second horizontal dimension.",
+                    ),
+                    (
+                        "wall_thickness",
+                        ("wall", "thickness"),
+                        "What wall thickness should the enclosure use?",
+                        "Wall thickness determines the structural strength and print time.",
+                    ),
+                    (
+                        "corner_radius",
+                        ("corner", "radius", "fillet"),
+                        "What corner radius should the enclosure use?",
+                        "Corner radius affects aesthetics and printability.",
+                    ),
+                ],
+            )
+
+        if "bracket" in request_text:
+            return self._missing_dimension_questions(
+                request_text,
+                answered_parameter_ids,
+                [
+                    (
+                        "bracket_width",
+                        ("width", "wide"),
+                        "What width should the bracket have?",
+                        "The bracket width defines the primary horizontal span.",
+                    ),
+                    (
+                        "bracket_height",
+                        ("height", "tall"),
+                        "What height should the bracket have?",
+                        "The bracket height defines the vertical leg length.",
+                    ),
+                    (
+                        "bracket_thickness",
+                        ("thickness",),
+                        "What material thickness should the bracket use?",
+                        "Material thickness determines the bracket's load capacity.",
+                    ),
+                    (
+                        "mounting_hole_diameter",
+                        ("mounting hole", "hole", "screw"),
+                        "What mounting hole diameter should the bracket use?",
+                        "Hole diameter must match the fastener size.",
+                    ),
+                    (
+                        "hole_spacing",
+                        ("hole spacing", "spacing", "pitch"),
+                        "What hole spacing should the bracket use?",
+                        "Spacing between mounting holes determines compatibility.",
+                    ),
+                ],
+            )
+
+        if "box" in request_text:
+            return self._missing_dimension_questions(
+                request_text,
+                answered_parameter_ids,
+                [
+                    (
+                        "box_width",
+                        ("width", "wide"),
+                        "What interior width should the box have?",
+                        "The box width defines the primary horizontal dimension.",
+                    ),
+                    (
+                        "box_depth",
+                        ("depth", "deep"),
+                        "What interior depth should the box have?",
+                        "The box depth defines the second horizontal dimension.",
+                    ),
+                    (
+                        "box_height",
+                        ("height", "tall"),
+                        "What interior height should the box have?",
+                        "The box height defines the vertical dimension and usable volume.",
+                    ),
+                    (
+                        "wall_thickness",
+                        ("wall", "thickness"),
+                        "What wall thickness should the box use?",
+                        "Wall thickness determines the structural strength of the box.",
+                    ),
+                ],
+            )
+
         return []
 
     @staticmethod
@@ -513,6 +689,11 @@ class PlannerService:
             or "cup" in request_text
             or "phone holder" in request_text
             or ("phone" in request_text and "holder" in request_text)
+            or "bottle" in request_text
+            or "enclosure" in request_text
+            or "housing" in request_text
+            or "bracket" in request_text
+            or "box" in request_text
         )
 
     def _missing_dimension_questions(
@@ -554,6 +735,10 @@ class PlannerService:
     @staticmethod
     def _has_linear_measurement(request_text: str) -> bool:
         return bool(_LINEAR_UNIT_PATTERN.search(request_text))
+
+    @staticmethod
+    def _has_volume_measurement(request_text: str) -> bool:
+        return bool(_VOLUME_UNIT_PATTERN.search(request_text))
 
     @staticmethod
     def _linear_measurement_count(request_text: str) -> int:
