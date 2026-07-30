@@ -4,6 +4,8 @@
 
 **Note:** Translates sequential text instructions and steps strictly into executable FreeCAD Python macros.
 
+![Code Generation Agent Flow](./code-generation-agent.png)
+
 ## Running Locally
 
 To run the Code Generator agent locally:
