@@ -1,20 +1,13 @@
 import os
 import json
+import logging
 import asyncio
-from openai import AsyncOpenAI
+from groq import AsyncGroq, GroqError
+from deps import Settings, get_settings
 from schemas.request import SupervisorRequest
 from schemas.response import SupervisorResponse
 
-# Configuration for Local Ollama LLM (running at http://localhost:11434)
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:0.5b")
-LLM_API_KEY = os.getenv("OLLAMA_API_KEY", os.getenv("DEEPSEEK_API_KEY", "ollama"))
-
-def get_openai_client() -> AsyncOpenAI:
-    return AsyncOpenAI(
-        api_key=LLM_API_KEY,
-        base_url=OLLAMA_BASE_URL,
-    )
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """
 You are the gateway routing agent for a CAD modeling system (Sketch2CAD). 
@@ -42,12 +35,15 @@ You MUST respond with a valid JSON object strictly matching this schema:
 """
 
 
-async def evaluate_complexity(request: SupervisorRequest) -> SupervisorResponse:
+async def evaluate_complexity(request: SupervisorRequest, settings: Settings = None) -> SupervisorResponse:
     """
-    Evaluates the user instruction using the local LLM (Ollama @ http://localhost:11434) to determine routing path.
+    Evaluates the user instruction using the Groq Cloud LLM to determine routing path.
     - Sketch-only requests route deterministically to 'complex'.
     - Text instructions are evaluated completely by the LLM to choose 'simple' or 'complex'.
     """
+    if settings is None:
+        settings = get_settings()
+
     instruction = (request.instruction or "").strip()
 
     # Sketch-only (no instruction, canvas present) -> Complex
@@ -57,12 +53,19 @@ async def evaluate_complexity(request: SupervisorRequest) -> SupervisorResponse:
             original_instruction=""
         )
 
+    if not settings.GROQ_API_KEY:
+        logger.warning("GROQ_API_KEY is not set. Falling back to complex path.")
+        return SupervisorResponse(
+            routing_path="complex",
+            original_instruction=request.instruction
+        )
+
     # Let the LLM choose routing path completely
     try:
-        client = get_openai_client()
+        client = AsyncGroq(api_key=settings.GROQ_API_KEY)
         response = await asyncio.wait_for(
             client.chat.completions.create(
-                model=OLLAMA_MODEL,
+                model=settings.LLM_MODEL,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": instruction}
@@ -70,7 +73,7 @@ async def evaluate_complexity(request: SupervisorRequest) -> SupervisorResponse:
                 response_format={"type": "json_object"},
                 temperature=0.0
             ),
-            timeout=10.0
+            timeout=15.0
         )
         llm_content = response.choices[0].message.content
         llm_output = json.loads(llm_content)
@@ -83,12 +86,14 @@ async def evaluate_complexity(request: SupervisorRequest) -> SupervisorResponse:
             routing_path=routing_path,
             original_instruction=request.instruction
         )
-    except Exception:
+    except Exception as e:
+        logger.error(f"Supervisor LLM call failed: {e}")
         # Fallback safely to complex path if LLM call fails
         return SupervisorResponse(
             routing_path="complex",
             original_instruction=request.instruction
         )
+
 
 
 

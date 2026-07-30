@@ -9,8 +9,10 @@
 ```bash
 cd backend/agents/supervisor
 pip install -r requirements.txt
+export GROQ_API_KEY="your_groq_api_key_here"  # Or set in .env file
 uvicorn main:app --reload --port 8000
 ```
+
 
 Service base URL: `http://localhost:8000`
 

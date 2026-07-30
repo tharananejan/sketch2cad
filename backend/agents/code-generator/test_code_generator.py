@@ -78,8 +78,9 @@ class TestCodeGeneratorComponents(unittest.TestCase):
 
     def test_response_schema_error_field(self):
         from schemas.response import CodeGenerateResponse
-        resp = CodeGenerateResponse(code="step not available", error="step not available")
+        resp = CodeGenerateResponse(code=["step not available"], error="step not available")
         self.assertEqual(resp.error, "step not available")
+
 
 
 if __name__ == "__main__":
