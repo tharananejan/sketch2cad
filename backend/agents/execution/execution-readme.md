@@ -2,4 +2,11 @@
 
 **Purpose:** Non-LLM Script Executor & Failure Listener.
 
-**Note:** Executes the generated FreeCAD Python script lines sequentially inside the local headless FreeCAD application instance and catches any runtime or compilation exceptions.
+Receives generated FreeCAD Python from the Code Generator through `POST /execute`. It first runs the code headlessly with FreeCADCmd to catch execution errors for the Error Handler. If that succeeds, it launches the same code as a `.FCMacro` in the local FreeCAD GUI, where the user sees the generated model.
+
+Run locally after installing dependencies:
+
+```powershell
+& <python> -m pip install -r requirements.txt
+& <python> -m uvicorn api:app --host 127.0.0.1 --port 8000
+```

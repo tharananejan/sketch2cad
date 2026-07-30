@@ -1,0 +1,6 @@
+temp_script.py
+output.json
+__pycache__/
+*.py[cod]
+.venv/
+macros/
