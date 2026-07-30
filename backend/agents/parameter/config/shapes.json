@@ -1,0 +1,31 @@
+{
+    "cube": {
+        "required": [
+            "length"
+        ]
+    },
+    "sphere": {
+        "required": [
+            "radius"
+        ]
+    },
+    "cylinder": {
+        "required": [
+            "radius",
+            "height"
+        ]
+    },
+    "cone": {
+        "required": [
+            "radius",
+            "height"
+        ]
+    },
+    "box": {
+        "required": [
+            "length",
+            "width",
+            "height"
+        ]
+    }
+}
