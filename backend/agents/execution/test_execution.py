@@ -68,7 +68,7 @@ class ExecutionRouterTests(unittest.TestCase):
             },
         )
         run.assert_called_once_with(
-            ["C:/FreeCAD/freecadcmd.exe", str(self.router.TEMP_SCRIPT_PATH)],
+            ["C:/FreeCAD/freecadcmd.exe", "-c", str(self.router.TEMP_SCRIPT_PATH)],
             capture_output=True,
             check=False,
             shell=False,
@@ -125,32 +125,71 @@ class ExecutionRouterTests(unittest.TestCase):
         )
         self.assertFalse(self.router.TEMP_SCRIPT_PATH.exists())
 
-    def test_successful_preflight_launches_the_generated_code_in_freecad_gui(self):
-        code = "print('generated code')\n"
-        payload = {"step_id": 42, "code": code}
+    def test_start_gui_session_launches_one_persistent_bridge(self):
         self.router.GUI_MACROS_DIRECTORY = self.temp_path / "macros"
-        preflight_result = {
-            "step_id": 42,
-            "status": "SUCCESS",
-            "stdout": "Preflight passed",
-            "error_trace": None,
-        }
+        self.router.GUI_BRIDGE_MACRO_PATH = (
+            self.router.GUI_MACROS_DIRECTORY / "sketch2cad_session.FCMacro"
+        )
+        self.router.PROJECT_DOCUMENT_PATH = self.temp_path / "models" / "sketch2cad.FCStd"
 
-        with patch.object(self.router, "execute", return_value=preflight_result), patch.object(
+        with patch.object(
+            self.router, "_gui_bridge_is_ready", side_effect=[False, True]
+        ), patch.object(
             self.router, "find_freecad_gui", return_value="C:/FreeCAD/FreeCAD.exe"
         ), patch.object(self.router.subprocess, "Popen") as popen:
-            result = self.router.execute_and_display(payload)
+            self.assertIsNone(self.router._start_gui_session())
 
-        macro_path = self.router.GUI_MACROS_DIRECTORY / "step-42.FCMacro"
-        self.assertEqual(macro_path.read_text(encoding="utf-8"), code)
+        macro_source = self.router.GUI_BRIDGE_MACRO_PATH.read_text(encoding="utf-8")
+        self.assertIn(str(self.router.GUI_BRIDGE_PORT), macro_source)
+        self.assertIn(json.dumps(str(self.router.PROJECT_DOCUMENT_PATH)), macro_source)
         popen.assert_called_once_with(
-            ["C:/FreeCAD/FreeCAD.exe", str(macro_path)],
+            ["C:/FreeCAD/FreeCAD.exe", str(self.router.GUI_BRIDGE_MACRO_PATH)],
             stdout=self.router.subprocess.DEVNULL,
             stderr=self.router.subprocess.DEVNULL,
             shell=False,
         )
-        self.assertEqual(result["status"], "SUCCESS")
-        self.assertIn("Opened the generated model in FreeCAD GUI.", result["stdout"])
+
+    def test_successful_request_uses_existing_freecad_gui_session(self):
+        code = "print('generated code')\n"
+        payload = {"step_id": 42, "code": code}
+        gui_result = {
+            "step_id": 42,
+            "status": "SUCCESS",
+            "stdout": "Created bottle\n",
+            "error_trace": None,
+        }
+
+        with patch.object(self.router, "_start_gui_session", return_value=None), patch.object(
+            self.router, "_send_gui_bridge_request", return_value=gui_result
+        ) as send:
+            result = self.router.execute_and_display(payload)
+
+        send.assert_called_once_with(
+            {"step_id": 42, "code": code},
+            timeout=self.router.EXECUTION_TIMEOUT_SECONDS + 5,
+        )
+        self.assertEqual(
+            result,
+            {
+                "step_id": 42,
+                "status": "SUCCESS",
+                "stdout": "Created bottle\n",
+                "error_trace": None,
+            },
+        )
+
+    def test_syntax_failure_does_not_start_or_contact_freecad_gui(self):
+        payload = {"step_id": 42, "code": "def missing_colon()\n"}
+
+        with patch.object(self.router, "_start_gui_session") as start, patch.object(
+            self.router, "_send_gui_bridge_request"
+        ) as send:
+            result = self.router.execute_and_display(payload)
+
+        self.assertEqual(result["status"], "FAILED")
+        self.assertIn("SyntaxError", result["error_trace"])
+        start.assert_not_called()
+        send.assert_not_called()
 
     def test_zero_exit_script_exception_is_reported_as_failure(self):
         completed = subprocess.CompletedProcess(
