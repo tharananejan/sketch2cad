@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, StrictInt, StrictStr
 
-from execution_router import execute_and_display
+from execution_router import execute_in_session
 
 app = FastAPI(title="Sketch2CAD Execution Agent", version="1.1.0")
 app.add_middleware(
@@ -41,7 +41,7 @@ def health() -> dict:
 @app.post("/execute", response_model=ExecuteResponse)
 def execute_code(request: ExecuteRequest) -> ExecuteResponse:
     """Apply generated code to the persistent FreeCAD document."""
-    result = execute_and_display(
+    result = execute_in_session(
         {"step_id": request.step_id, "code": request.code}
     )
     return ExecuteResponse(**result)
