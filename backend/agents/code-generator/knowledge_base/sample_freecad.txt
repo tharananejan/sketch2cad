@@ -50,3 +50,9 @@ To merge or fuse object A and object B:
 fuse = doc.addObject("Part::MultiFuse", "Fuse")
 fuse.Shapes = [doc.getObject("Box"), doc.getObject("Cylinder")]
 doc.recompute()
+
+8. Moving an Object:
+To move or translate an object to a new location in 3D space:
+# Assuming 'box' is an existing object
+box.Placement.Base = App.Vector(10.0, 20.0, 30.0) # Moves object to X=10, Y=20, Z=30
+doc.recompute()
