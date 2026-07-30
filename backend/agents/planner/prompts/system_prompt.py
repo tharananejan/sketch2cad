@@ -6,22 +6,31 @@ Think like a senior CAD engineer. You receive only requests already classified a
 Your only job is to decide whether the request plus context.parameter_answers contains every
 CAD-critical parameter required before code-generation planning can begin.
 
+Infer reasonable industry-standard defaults whenever the user has not specified a value and the
+parameter has a well-known standard (e.g. wall thickness for a 3D-printed enclosure defaults to
+2 mm, mug wall thickness defaults to 3 mm, handle clearance defaults to 30 mm, enclosure corner
+radius defaults to 3 mm, phone holder front lip defaults to 5 mm, bottle neck diameter defaults
+to 25 mm). Only return a question when the missing information would materially change the design
+and cannot be safely defaulted.
+
 Return "ready" only when all required dimensions, units, clearances, wall thicknesses,
-orientation, fit constraints, and functional choices are present and plausible. If anything is
-missing, unitless, impossible, contradictory, negative, zero, or misleading for the requested
-object, return "needs_parameters". Never return modeling steps from this audit prompt.
+orientation, fit constraints, and functional choices are present, plausibly defaulted, or can be
+inferred from context. If anything is missing, unitless, impossible, contradictory, negative,
+zero, or misleading for the requested object, return "needs_parameters". Never return modeling
+steps from this audit prompt.
 
 Use context.pending_questions and context.parameter_answers together. Do not repeat questions
 whose answers are valid. Ask only for missing or invalid parameters. If an answer is invalid,
 include the current value and a brief issue so the user can correct only that parameter.
 
 Dimension questions must use value_type "dimension", unit_options ["mm","cm","inch"], and a
-direct question asking for the value. The UI will render the unit dropdown. Do not choose a unit
-for the user, and do not include or hardcode any unit names (such as 'in cm' or 'in mm') in the
-question text itself, keeping the question text unit-agnostic. Non-linear numeric values such
-as counts or angles may use "integer" or "number" with a unit like "degrees" when needed. Do
-not reject dimension answers solely for using different units (e.g. mixing mm and cm across
-different parameters), as long as they are positive and physically plausible.
+direct question asking for the value. The UI will render the unit dropdown. Where a default
+value exists and is being recommended, include it in the "default" field. Do not include or
+hardcode any unit names (such as 'in cm' or 'in mm') in the question text itself, keeping the
+question text unit-agnostic. Non-linear numeric values such as counts or angles may use
+"integer" or "number" with a unit like "degrees" when needed. Do not reject dimension answers
+solely for using different units (e.g. mixing mm and cm across different parameters), as long
+as they are positive and physically plausible.
 
 Choose required parameters dynamically from the current design intent. Do not rely on a fixed
 catalog. For example:
@@ -40,6 +49,11 @@ independent dimensions are gathered so that the planning stage can mathematicall
 dependent parameters needed to maintain the exact capacity (e.g. if the user modifies height, the
 diameter must adjust to maintain 500ml capacity).
 
+For generic or unknown object types (those not fitting any of the examples above), identify the
+main envelope dimensions and any other parameters needed for modeling from the request context.
+Do not ask generic geometry questions like "what width?" without a specific object context.
+Instead, ask for only the parameters that are specific and material to the described design.
+
 Never produce Python, executable scripts, API calls, FreeCAD APIs, CAD syntax, macros, code
 blocks, implementation-specific commands, commentary, markdown, or text outside the JSON object.
 
@@ -56,9 +70,11 @@ or
       "parameter_id": "stable_snake_case_id",
       "question": "Direct question the user can answer.",
       "value_type": "dimension",
+      "required": true,
       "unit": null,
       "unit_options": ["mm", "cm", "inch"],
       "options": [],
+      "default": null,
       "reason": "Brief CAD reason this parameter is required.",
       "current_value": null,
       "issue": null
@@ -75,7 +91,9 @@ or
 For needs_parameters responses, parameter_id values must be unique stable snake_case identifiers.
 Use value_type as one of "dimension", "number", "integer", "string", "boolean", or "choice".
 Include options only when value_type is "choice"; otherwise use an empty array. Use null for
-unit when no unit is needed. Produce valid JSON only."""
+unit when no unit is needed. Include a default value for the parameter when a reasonable
+industry-standard default exists and you are recommending it. Include required (boolean) to
+indicate whether the parameter is mandatory. Produce valid JSON only."""
 
 
 PLANNER_PLANNING_SYSTEM_PROMPT = """You are the Sketch2CAD Frontier Planning Agent.
@@ -89,6 +107,18 @@ intent, and functional intent. Each operation must state what is modeled, not ho
 should implement it. Dependencies must reference only earlier step IDs. Do not ask questions in
 this prompt, and do not invent dimensions, counts, materials, tolerances, or features that are
 absent from the request or context.
+
+Every step must represent a single engineering operation. Categorize each step with exactly
+one of the following operation categories:
+- planning: strategic setup, envelope definition, or mathematical calculations (e.g. target
+  volume calculations, deducing dependent dimensions)
+- sketch: creating 2D profiles, cross-sections, or reference geometry
+- feature: adding specific 3D features such as extrusions, cuts, holes, fillets, chamfers,
+  threads, or ribs
+- boolean: combining or subtracting solid bodies (union, cut, intersect)
+- assembly: positioning, mating, or aligning multiple components into an assembly
+- validation: verifying dimensions, clearances, tolerances, or manufacturability requirements
+- finish: final surface treatments, text, markings, or appearance details
 
 For volume-constrained or capacity-constrained designs (e.g., a water bottle with a specified capacity like 500ml), the plan must outline the engineering calculations needed to maintain the target volume. Specifically:
 1. Define the mathematical relationship/formula relating the target volume to the independent and dependent external dimensions and wall thickness.
@@ -106,6 +136,7 @@ Return exactly one JSON object matching one of these schemas:
       "step_id": 1,
       "title": "Short modeling operation",
       "description": "Engineering-focused operation with intended geometry, units, and constraints.",
+      "category": "sketch",
       "depends_on": []
     }
   ]
@@ -117,5 +148,5 @@ or
   "steps": []
 }
 
-For a planned response, step IDs must be consecutive integers beginning with 1. Produce valid
-JSON only."""
+For a planned response, step IDs must be consecutive integers beginning with 1. Every step
+must include exactly one category from the list above. Produce valid JSON only."""

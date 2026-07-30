@@ -52,6 +52,7 @@ class PlanStep(BaseModel):
     step_id: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1, max_length=2_000)
+    category: Literal["planning", "sketch", "feature", "boolean", "assembly", "validation", "finish"]
     depends_on: list[int] = Field(default_factory=list)
 
 
@@ -67,6 +68,8 @@ class ParameterQuestion(BaseModel):
     unit_options: list[DimensionUnit] = Field(default_factory=list)
     options: list[str] = Field(default_factory=list)
     reason: str = Field(min_length=1, max_length=500)
+    required: bool = Field(default=True)
+    default: Any | None = None
     current_value: Any | None = None
     issue: str | None = Field(default=None, max_length=500)
 

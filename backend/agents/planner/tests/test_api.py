@@ -36,6 +36,7 @@ def test_endpoint_returns_only_the_plan_response_shape() -> None:
                         "step_id": 1,
                         "title": "Establish base geometry",
                         "description": "Create the base geometry for the requested part.",
+                        "category": "sketch",
                         "depends_on": [],
                     }
                 ],
@@ -100,6 +101,7 @@ def test_endpoint_does_not_plan_vague_prompt_after_ready_audit() -> None:
                         "step_id": 1,
                         "title": "Create mug",
                         "description": "Create a mug before collecting dimensions.",
+                        "category": "feature",
                         "depends_on": [],
                     }
                 ],
@@ -116,11 +118,10 @@ def test_endpoint_does_not_plan_vague_prompt_after_ready_audit() -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "needs_parameters"
+    # wall_thickness (3mm) and handle_clearance (30mm) have defaults; not asked
     assert {question["parameter_id"] for question in response.json()["questions"]} == {
         "mug_height",
         "outer_diameter",
-        "wall_thickness",
-        "handle_clearance",
     }
 
 

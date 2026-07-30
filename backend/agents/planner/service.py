@@ -70,6 +70,36 @@ _ANGLE_KEYWORDS = ("angle", "tilt", "incline", "lean", "degrees", "degree")
 _SUPPORTED_UNITS = {"mm", "cm", "inch"}
 
 
+_DESIGN_DEFAULTS: dict[str, dict[str, Any]] = {
+    "mug": {
+        "wall_thickness": {"value": 3, "unit": "mm"},
+        "handle_clearance": {"value": 30, "unit": "mm"},
+    },
+    "phone_holder": {
+        "slot_depth": {"value": 15, "unit": "mm"},
+        "front_lip_height": {"value": 5, "unit": "mm"},
+        "charging_cable_clearance": {"value": 10, "unit": "mm"},
+        "holder_angle": 60,
+    },
+    "bottle": {
+        "neck_diameter": {"value": 25, "unit": "mm"},
+        "neck_height": {"value": 20, "unit": "mm"},
+        "wall_thickness": {"value": 2, "unit": "mm"},
+    },
+    "enclosure": {
+        "wall_thickness": {"value": 2, "unit": "mm"},
+        "corner_radius": {"value": 3, "unit": "mm"},
+    },
+    "bracket": {
+        "bracket_thickness": {"value": 5, "unit": "mm"},
+        "mounting_hole_diameter": {"value": 4, "unit": "mm"},
+    },
+    "box": {
+        "wall_thickness": {"value": 2, "unit": "mm"},
+    },
+}
+
+
 class PlannerService:
     """Produces validated complex CAD modeling plans using an injected provider."""
 
@@ -295,6 +325,10 @@ class PlannerService:
 
         Runs before the audit to ensure known designs (cube, mug, bottle, etc.)
         always get the right questions regardless of LLM consistency.
+
+        Parameters with industry-standard defaults (wall thickness, handle clearance,
+        etc.) are not asked here; the audit LLM infers them. Generic/unknown designs
+        are passed to the audit LLM for parameter identification.
         """
 
         request_text = planner_request.request.lower()
@@ -307,14 +341,9 @@ class PlannerService:
         common_questions = self._common_design_missing_questions(request_text, answered_parameter_ids)
         if common_questions:
             return common_questions
-        if self._is_common_design(request_text):
-            return []
 
-        if not planner_request.context.parameter_answers:
-            generic_questions = self._generic_envelope_questions(request_text)
-            if generic_questions:
-                return generic_questions
-
+        # No generic envelope questions per Rule 7. The audit LLM handles
+        # non-common designs and infers defaults per Rule 9.
         return []
 
     def _unitless_dimension_questions(self, request_text: str) -> list[ParameterQuestion]:
@@ -339,52 +368,6 @@ class PlannerService:
                 )
             )
         return questions
-
-    def _generic_envelope_questions(self, request_text: str) -> list[ParameterQuestion]:
-        measurement_count = self._linear_measurement_count(request_text)
-        if measurement_count >= 3:
-            return []
-
-        if measurement_count == 2:
-            return [
-                self._dimension_question(
-                    "overall_height",
-                    "What overall height should this design use?",
-                    "A code-ready CAD plan needs the missing main envelope dimension.",
-                )
-            ]
-
-        if measurement_count == 1:
-            return [
-                self._dimension_question(
-                    "overall_width",
-                    "What overall width should this design use?",
-                    "A single supplied dimension is not enough for a code-ready CAD plan.",
-                ),
-                self._dimension_question(
-                    "overall_height",
-                    "What overall height should this design use?",
-                    "A single supplied dimension is not enough for a code-ready CAD plan.",
-                ),
-            ]
-
-        return [
-            self._dimension_question(
-                "overall_length",
-                "What overall length should this design use?",
-                "A code-ready CAD plan needs at least the main envelope dimensions.",
-            ),
-            self._dimension_question(
-                "overall_width",
-                "What overall width should this design use?",
-                "A code-ready CAD plan needs at least the main envelope dimensions.",
-            ),
-            self._dimension_question(
-                "overall_height",
-                "What overall height should this design use?",
-                "A code-ready CAD plan needs at least the main envelope dimensions.",
-            ),
-        ]
 
     def _common_design_missing_questions(
         self,
@@ -465,6 +448,7 @@ class PlannerService:
                         "Handle clearance controls the functional opening for the user's hand.",
                     ),
                 ],
+                design_key="mug",
             )
 
         if "phone holder" in request_text or ("phone" in request_text and "holder" in request_text):
@@ -503,18 +487,22 @@ class PlannerService:
                         "Cable clearance affects the functional cutout under the phone.",
                     ),
                 ],
+                design_key="phone_holder",
             )
+            phone_holder_defaults = _DESIGN_DEFAULTS.get("phone_holder", {})
+            holder_angle_default = phone_holder_defaults.get("holder_angle")
             if "holder_angle" not in answered_parameter_ids and not self._has_number_near_keywords(request_text, _ANGLE_KEYWORDS):
-                questions.append(
-                    ParameterQuestion(
-                        parameter_id="holder_angle",
-                        question="What viewing angle should the holder use?",
-                        value_type="number",
-                        unit="degrees",
-                        options=[],
-                        reason="The support angle sets the phone tilt.",
+                if holder_angle_default is None:
+                    questions.append(
+                        ParameterQuestion(
+                            parameter_id="holder_angle",
+                            question="What viewing angle should the holder use?",
+                            value_type="number",
+                            unit="degrees",
+                            options=[],
+                            reason="The support angle sets the phone tilt.",
+                        )
                     )
-                )
             return questions
 
         if "bottle" in request_text:
@@ -553,6 +541,7 @@ class PlannerService:
                         "Wall thickness is required to calculate the internal cavity and maintain capacity.",
                     ),
                 ],
+                design_key="bottle",
             )
             if "target_capacity" not in answered_parameter_ids and not self._has_volume_measurement(request_text):
                 questions.append(
@@ -603,6 +592,7 @@ class PlannerService:
                         "Corner radius affects aesthetics and printability.",
                     ),
                 ],
+                design_key="enclosure",
             )
 
         if "bracket" in request_text:
@@ -641,6 +631,7 @@ class PlannerService:
                         "Spacing between mounting holes determines compatibility.",
                     ),
                 ],
+                design_key="bracket",
             )
 
         if "box" in request_text:
@@ -673,38 +664,26 @@ class PlannerService:
                         "Wall thickness determines the structural strength of the box.",
                     ),
                 ],
+                design_key="box",
             )
 
         return []
-
-    @staticmethod
-    def _is_common_design(request_text: str) -> bool:
-        return (
-            "cube" in request_text
-            or "sphere" in request_text
-            or "ball" in request_text
-            or "cylinder" in request_text
-            or "mug" in request_text
-            or "coffee cup" in request_text
-            or "cup" in request_text
-            or "phone holder" in request_text
-            or ("phone" in request_text and "holder" in request_text)
-            or "bottle" in request_text
-            or "enclosure" in request_text
-            or "housing" in request_text
-            or "bracket" in request_text
-            or "box" in request_text
-        )
 
     def _missing_dimension_questions(
         self,
         request_text: str,
         answered_parameter_ids: set[str],
         specs: list[tuple[str, tuple[str, ...], str, str]],
+        *,
+        design_key: str | None = None,
     ) -> list[ParameterQuestion]:
         questions: list[ParameterQuestion] = []
+        design_defaults = _DESIGN_DEFAULTS.get(design_key, {}) if design_key else {}
         for parameter_id, keywords, question, reason in specs:
             if parameter_id in answered_parameter_ids:
+                continue
+            if parameter_id in design_defaults:
+                # Parameter has an industry-standard default; skip asking
                 continue
             if self._has_linear_measurement_near_keywords(request_text, keywords):
                 continue
@@ -719,6 +698,7 @@ class PlannerService:
         *,
         current_value: Any | None = None,
         issue: str | None = None,
+        default: Any | None = None,
     ) -> ParameterQuestion:
         return ParameterQuestion(
             parameter_id=parameter_id,
@@ -728,6 +708,7 @@ class PlannerService:
             unit_options=["mm", "cm", "inch"],
             options=[],
             reason=reason,
+            default=default,
             current_value=current_value,
             issue=issue,
         )
@@ -739,10 +720,6 @@ class PlannerService:
     @staticmethod
     def _has_volume_measurement(request_text: str) -> bool:
         return bool(_VOLUME_UNIT_PATTERN.search(request_text))
-
-    @staticmethod
-    def _linear_measurement_count(request_text: str) -> int:
-        return len(_LINEAR_UNIT_PATTERN.findall(request_text))
 
     @staticmethod
     def _has_linear_measurement_near_keywords(request_text: str, keywords: tuple[str, ...]) -> bool:
