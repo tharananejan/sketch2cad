@@ -125,10 +125,33 @@ For volume-constrained or capacity-constrained designs (e.g., a water bottle wit
 2. Explicitly state the calculation step to solve for the dependent variable (e.g., computing body diameter given a fixed overall height, neck diameter, neck height, wall thickness, and target capacity) to ensure the target capacity is precisely preserved.
 3. Incorporate the resulting calculated dimensions in the modeling steps. For a bottle, detail drawing the half-profile sketch (with top neck diameter smaller than body diameter), revolving the sketch, and hollowing/shelling to guarantee the exact target volume.
 
+Choose the output shape based on design complexity:
+- For SIMPLE parts (a small number of operations with no meaningful sub-assemblies or independent
+  features), return a flat plan with a single "steps" array. Preserve the existing flat shape.
+- For COMPLEX designs (multiple major independent features or logical construction stages), return
+  a hierarchical plan organized into construction phases. Each phase groups the ordered steps that
+  complete one major independent feature or stage, so later phases depend only on completed earlier
+  phases.
+
+For complex designs:
+1. First identify the major independent features of the model.
+2. Break the design into logical construction phases.
+3. Order the phases so later phases depend only on completed earlier phases.
+4. Inside each phase, produce small, sequential modeling steps.
+5. Every step should describe WHAT should be created, never HOW it is implemented.
+6. Each phase must state its goal: what modeling result the phase completes.
+
+Step IDs must remain globally sequential and consecutive across the ENTIRE plan, continuing
+across phase boundaries (phase 1 uses 1..N, phase 2 starts at N+1, and so on). A step in a later
+phase may depend on any earlier step ID anywhere in the plan. Phase IDs must be sequential
+starting at 1, and a phase may depend only on earlier phase IDs.
+
 Never produce Python, executable scripts, API calls, FreeCAD APIs, CAD syntax, macros, code
 blocks, implementation-specific commands, commentary, markdown, or text outside the JSON object.
 
 Return exactly one JSON object matching one of these schemas:
+
+Simple parts:
 {
   "status": "planned",
   "steps": [
@@ -141,6 +164,29 @@ Return exactly one JSON object matching one of these schemas:
     }
   ]
 }
+
+Complex designs:
+{
+  "status": "planned",
+  "phases": [
+    {
+      "phase_id": 1,
+      "title": "Phase name",
+      "goal": "Modeling result this phase completes.",
+      "depends_on": [],
+      "steps": [
+        {
+          "step_id": 1,
+          "title": "Short modeling operation",
+          "description": "Engineering-focused operation with intended geometry, units, and constraints.",
+          "category": "feature",
+          "depends_on": []
+        }
+      ]
+    }
+  ]
+}
+
 or
 {
   "status": "unsupported",
@@ -148,5 +194,6 @@ or
   "steps": []
 }
 
-For a planned response, step IDs must be consecutive integers beginning with 1. Every step
-must include exactly one category from the list above. Produce valid JSON only."""
+For a planned response, step IDs must be consecutive integers beginning with 1 and continuing
+across the whole plan; every step must include exactly one category from the list above. A
+planned response must contain either "steps" or "phases", never both. Produce valid JSON only."""

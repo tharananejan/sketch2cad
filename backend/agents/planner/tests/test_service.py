@@ -29,6 +29,37 @@ def planned_response(steps: list[dict[str, object]]) -> str:
     return json.dumps({"status": "planned", "steps": steps})
 
 
+def phased_response(phases: list[dict[str, object]]) -> str:
+    return json.dumps({"status": "planned", "phases": phases})
+
+
+def plan_step(step_id: int, *, depends_on: list[int] | None = None, category: str = "feature") -> dict[str, object]:
+    return {
+        "step_id": step_id,
+        "title": f"Modeling operation {step_id}",
+        "description": f"Create the required engineering feature number {step_id}.",
+        "category": category,
+        "depends_on": depends_on or [],
+    }
+
+
+def plan_phase(
+    phase_id: int,
+    steps: list[dict[str, object]],
+    *,
+    title: str = "Construction phase",
+    goal: str = "Complete the major independent feature of this phase.",
+    depends_on: list[int] | None = None,
+) -> dict[str, object]:
+    return {
+        "phase_id": phase_id,
+        "title": title,
+        "goal": goal,
+        "steps": steps,
+        "depends_on": depends_on or [],
+    }
+
+
 def ready_response() -> str:
     return json.dumps({"status": "ready", "questions": []})
 
@@ -1027,3 +1058,218 @@ def test_large_request_preserves_ordered_dependencies() -> None:
     assert len(response.steps) == 30
     assert response.steps[-1].step_id == 30
     assert response.steps[-1].depends_on == [29]
+
+
+def test_complex_request_returns_hierarchical_phases_with_flattened_steps() -> None:
+    """Complex designs return construction phases and a flattened global steps list."""
+    provider = FakeProvider(
+        [
+            ready_response(),
+            phased_response(
+                [
+                    plan_phase(
+                        1,
+                        [plan_step(1), plan_step(2, depends_on=[1])],
+                        title="Envelope",
+                        goal="Define the master outer envelope.",
+                    ),
+                    plan_phase(
+                        2,
+                        [plan_step(3, depends_on=[2]), plan_step(4, depends_on=[3])],
+                        title="Mounting features",
+                        goal="Add the mounting bosses and holes.",
+                        depends_on=[1],
+                    ),
+                ]
+            ),
+        ]
+    )
+    service = PlannerService(provider)
+
+    response = service.plan(
+        PlannerRequest(
+            request=(
+                "Design a 200 mm by 120 mm by 100 mm multi-feature industrial assembly "
+                "with an envelope, bearing seats, and four corner mounting bosses."
+            )
+        )
+    )
+
+    assert response.status == "planned"
+    assert [phase.phase_id for phase in response.phases] == [1, 2]
+    assert response.phases[0].title == "Envelope"
+    assert response.phases[0].goal == "Define the master outer envelope."
+    assert response.phases[1].depends_on == [1]
+    assert [step.step_id for step in response.steps] == [1, 2, 3, 4]
+    assert response.steps[2].depends_on == [2]
+    # Flattened steps mirror the phase steps in order
+    assert [step.step_id for step in response.steps] == [
+        step.step_id for phase in response.phases for step in phase.steps
+    ]
+
+
+def test_simple_request_returns_flat_steps_without_phases() -> None:
+    """Simple parts keep the existing flat steps behavior with empty phases."""
+    provider = FakeProvider(
+        [
+            ready_response(),
+            planned_response([plan_step(1), plan_step(2, depends_on=[1])]),
+        ]
+    )
+    service = PlannerService(provider)
+
+    response = service.plan(PlannerRequest(request="Generate a cube with side length 40 mm"))
+
+    assert response.status == "planned"
+    assert response.phases == []
+    assert [step.step_id for step in response.steps] == [1, 2]
+
+
+def test_phase_ids_must_be_sequential() -> None:
+    service = PlannerService(
+        FakeProvider(
+            [
+                ready_response(),
+                phased_response(
+                    [
+                        plan_phase(1, [plan_step(1)]),
+                        plan_phase(3, [plan_step(2)]),
+                    ]
+                ),
+            ]
+        )
+    )
+
+    with pytest.raises(InvalidModelResponseError):
+        service.plan(
+            PlannerRequest(request="Design a 200 mm by 120 mm by 100 mm multi-feature industrial assembly")
+        )
+
+
+def test_phase_dependencies_reference_only_earlier_phases() -> None:
+    service = PlannerService(
+        FakeProvider(
+            [
+                ready_response(),
+                phased_response(
+                    [
+                        plan_phase(1, [plan_step(1)]),
+                        plan_phase(2, [plan_step(2)], depends_on=[3]),
+                    ]
+                ),
+            ]
+        )
+    )
+
+    with pytest.raises(InvalidModelResponseError):
+        service.plan(
+            PlannerRequest(request="Design a 200 mm by 120 mm by 100 mm multi-feature industrial assembly")
+        )
+
+
+def test_step_ids_must_be_globally_sequential_across_phases() -> None:
+    """Steps continue numbering across phase boundaries without gaps or restarts."""
+    service = PlannerService(
+        FakeProvider(
+            [
+                ready_response(),
+                phased_response(
+                    [
+                        plan_phase(1, [plan_step(1)]),
+                        plan_phase(2, [plan_step(2), plan_step(4)]),
+                    ]
+                ),
+            ]
+        )
+    )
+
+    with pytest.raises(InvalidModelResponseError):
+        service.plan(
+            PlannerRequest(request="Design a 200 mm by 120 mm by 100 mm multi-feature industrial assembly")
+        )
+
+
+def test_cross_phase_step_dependencies_are_allowed_on_earlier_steps() -> None:
+    """A step in a later phase may depend on a step from an earlier phase."""
+    provider = FakeProvider(
+        [
+            ready_response(),
+            phased_response(
+                [
+                    plan_phase(1, [plan_step(1)]),
+                    plan_phase(2, [plan_step(2, depends_on=[1])], depends_on=[1]),
+                ]
+            ),
+        ]
+    )
+    service = PlannerService(provider)
+
+    response = service.plan(
+        PlannerRequest(request="Design a 200 mm by 120 mm by 100 mm two-stage industrial assembly")
+    )
+
+    assert response.status == "planned"
+    assert response.steps[1].depends_on == [1]
+
+
+def test_plan_rejects_mixed_flat_steps_and_phases() -> None:
+    """A planned response must contain either steps or phases, never both."""
+    response = {
+        "status": "planned",
+        "steps": [plan_step(1)],
+        "phases": [plan_phase(1, [plan_step(1)])],
+    }
+    service = PlannerService(FakeProvider([ready_response(), json.dumps(response)]))
+
+    with pytest.raises(InvalidModelResponseError):
+        service.plan(
+            PlannerRequest(request="Design a 200 mm by 120 mm by 100 mm multi-feature industrial assembly")
+        )
+
+
+def test_phase_steps_reject_forbidden_implementation_content() -> None:
+    """Phase steps are scanned for prohibited implementation content like flat steps."""
+    forbidden_step = plan_step(1)
+    forbidden_step["description"] = "Create the body using the FreeCAD extrusion API call."
+    service = PlannerService(
+        FakeProvider(
+            [
+                ready_response(),
+                phased_response([plan_phase(1, [forbidden_step])]),
+            ]
+        )
+    )
+
+    with pytest.raises(InvalidModelResponseError) as captured_error:
+        service.plan(
+            PlannerRequest(request="Design a 200 mm by 120 mm by 100 mm multi-feature industrial assembly")
+        )
+
+    assert captured_error.value.details == {"step_id": 1}
+
+
+def test_phase_goal_rejects_forbidden_implementation_content() -> None:
+    """Phase goals are scanned for prohibited implementation content too."""
+    phase = plan_phase(
+        1,
+        [plan_step(1)],
+        goal="Define the envelope using the FreeCAD API before modeling.",
+    )
+    service = PlannerService(FakeProvider([ready_response(), phased_response([phase])]))
+
+    with pytest.raises(InvalidModelResponseError) as captured_error:
+        service.plan(
+            PlannerRequest(request="Design a 200 mm by 120 mm by 100 mm multi-feature industrial assembly")
+        )
+
+    assert captured_error.value.details == {"phase_id": 1}
+
+
+def test_phase_requires_at_least_one_step() -> None:
+    phase = plan_phase(1, [])
+    service = PlannerService(FakeProvider([ready_response(), phased_response([phase])]))
+
+    with pytest.raises(InvalidModelResponseError):
+        service.plan(
+            PlannerRequest(request="Design a 200 mm by 120 mm by 100 mm multi-feature industrial assembly")
+        )

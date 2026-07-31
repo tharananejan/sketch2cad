@@ -155,7 +155,7 @@ _PLANNER_UI = """<!doctype html>
   <main>
     <header>
       <h1>Sketch2CAD Frontier Planner</h1>
-      <p>Paste a complex CAD design request. The planner returns modeling steps or parameter questions.</p>
+      <p>Paste a CAD design request. The planner returns flat modeling steps, construction phases with ordered steps, or parameter questions.</p>
     </header>
     <form id="planner-form">
       <label>

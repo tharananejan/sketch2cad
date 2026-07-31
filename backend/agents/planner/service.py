@@ -21,6 +21,7 @@ from .models import (
     ParameterAuditDraft,
     ParameterQuestion,
     PlanDraft,
+    PlanPhase,
     PlanResponse,
     PlanStep,
     PlannerRequest,
@@ -183,7 +184,15 @@ class PlannerService:
                 plan_draft.reason or "The request is not supported for CAD modeling.",
             )
 
-        self._ensure_modeling_only(plan_draft.steps)
+        self._ensure_modeling_only(plan_draft.steps, plan_draft.phases)
+        if plan_draft.phases:
+            flattened_steps = [step for phase in plan_draft.phases for step in phase.steps]
+            return PlanResponse(
+                plan_id=plan_id,
+                complexity="complex",
+                steps=flattened_steps,
+                phases=plan_draft.phases,
+            )
         return PlanResponse(
             plan_id=plan_id,
             complexity="complex",
@@ -776,8 +785,18 @@ class PlannerService:
         return payload
 
     @staticmethod
-    def _ensure_modeling_only(steps: list[PlanStep]) -> None:
-        for step in steps:
+    def _ensure_modeling_only(steps: list[PlanStep], phases: list[PlanPhase] | None = None) -> None:
+        all_steps = list(steps)
+        for phase in phases or []:
+            phase_text = f"{phase.title}\n{phase.goal}"
+            for pattern in _FORBIDDEN_OUTPUT_PATTERNS:
+                if pattern.search(phase_text):
+                    raise InvalidModelResponseError(
+                        "The planner provider returned prohibited implementation content.",
+                        details={"phase_id": phase.phase_id},
+                    )
+            all_steps.extend(phase.steps)
+        for step in all_steps:
             step_text = f"{step.title}\n{step.description}"
             for pattern in _FORBIDDEN_OUTPUT_PATTERNS:
                 if pattern.search(step_text):

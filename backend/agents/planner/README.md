@@ -43,7 +43,9 @@ Dimension answers must include a value and a user-selected unit. The browser UI 
 
 ## Response Schemas
 
-Planned responses are exactly this JSON shape:
+Planned responses keep a flat `steps` array for downstream compatibility. Simple parts return only `steps` (empty `phases`); complex designs additionally group those same steps into construction `phases`, each with a goal and ordered steps. Step IDs are globally consecutive across the whole plan, and a planned response contains either `steps` or `phases`, never both.
+
+Simple part shape:
 
 ```json
 {
@@ -55,13 +57,51 @@ Planned responses are exactly this JSON shape:
       "step_id": 1,
       "title": "Establish enclosure envelope",
       "description": "Create the outer enclosure volume using the required width, height, depth, and wall-thickness intent.",
+      "category": "feature",
       "depends_on": []
+    }
+  ],
+  "phases": []
+}
+```
+
+Complex design shape (steps are flattened into `steps` for downstream consumers):
+
+```json
+{
+  "status": "planned",
+  "plan_id": "f1cf2bb2-7ea8-53d9-8616-9175c6f15dd9",
+  "complexity": "complex",
+  "steps": [
+    {
+      "step_id": 1,
+      "title": "Establish enclosure envelope",
+      "description": "Create the outer enclosure volume.",
+      "category": "feature",
+      "depends_on": []
+    }
+  ],
+  "phases": [
+    {
+      "phase_id": 1,
+      "title": "Envelope",
+      "goal": "Define the outer enclosure volume and wall thickness.",
+      "depends_on": [],
+      "steps": [
+        {
+          "step_id": 1,
+          "title": "Establish enclosure envelope",
+          "description": "Create the outer enclosure volume.",
+          "category": "feature",
+          "depends_on": []
+        }
+      ]
     }
   ]
 }
 ```
 
-Step IDs must start at `1`, remain consecutive, and depend only on earlier step IDs. The plan ID is deterministically derived from the request and context.
+Step IDs must start at `1`, remain consecutive across the whole plan (including across phases), and depend only on earlier step IDs. Phase IDs must start at `1`, remain consecutive, and depend only on earlier phase IDs. The plan ID is deterministically derived from the request and context.
 
 When CAD-critical details are missing, the planner returns questions instead of steps:
 

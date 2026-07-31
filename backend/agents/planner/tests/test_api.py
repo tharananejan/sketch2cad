@@ -53,9 +53,55 @@ def test_endpoint_returns_only_the_plan_response_shape() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert set(response.json()) == {"status", "plan_id", "complexity", "steps"}
+    assert set(response.json()) == {"status", "plan_id", "complexity", "steps", "phases"}
     assert response.json()["status"] == "planned"
     assert response.json()["complexity"] == "complex"
+    assert response.json()["phases"] == []
+
+
+def test_endpoint_returns_hierarchical_phases_response_shape() -> None:
+    response_texts = [
+        json.dumps({"status": "ready", "questions": []}),
+        json.dumps(
+            {
+                "status": "planned",
+                "phases": [
+                    {
+                        "phase_id": 1,
+                        "title": "Envelope",
+                        "goal": "Define the master outer envelope.",
+                        "depends_on": [],
+                        "steps": [
+                            {
+                                "step_id": 1,
+                                "title": "Establish envelope",
+                                "description": "Create the outer envelope volume.",
+                                "category": "feature",
+                                "depends_on": [],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+    ]
+    app.dependency_overrides[get_planner_service] = lambda: PlannerService(FakeProvider(response_texts))
+
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/planner",
+            json={"request": "Design a 200 mm by 120 mm by 100 mm multi-feature industrial assembly."},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert set(response.json()) == {"status", "plan_id", "complexity", "steps", "phases"}
+    assert response.json()["status"] == "planned"
+    assert response.json()["phases"][0]["phase_id"] == 1
+    assert response.json()["phases"][0]["goal"] == "Define the master outer envelope."
+    assert [step["step_id"] for step in response.json()["steps"]] == [1]
 
 
 def test_endpoint_returns_needs_parameters_response_shape() -> None:
