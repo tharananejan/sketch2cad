@@ -1,0 +1,32 @@
+# ---- Node (apps/web) ----
+node_modules/
+dist/
+*.local
+npm-debug.log*
+
+# ---- Python (backend agents) ----
+.env
+.venv/
+.venvs/
+.test-venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+
+# ---- Local databases ----
+*.db
+*.db-shm
+*.db-wal
+
+# ---- Freebuff ----
+.freebuff/
+
+# ---- Editors / OS ----
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
