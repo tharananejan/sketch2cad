@@ -11,6 +11,43 @@ class BaseAgentInterface:
     def process(self, context: OrchestratorContext) -> OrchestratorContext:
         raise NotImplementedError("Agents must implement the process method.")
 
+class SupervisorAgentInterface(BaseAgentInterface):
+    """
+    Interface for the Supervisor Agent (Complexity Checker).
+    """
+    def __init__(self, url: str = "http://127.0.0.1:8003/supervisor/evaluate"):
+        self.url = url
+
+    def process(self, context: OrchestratorContext) -> OrchestratorContext:
+        print(f"\n\033[94m[Supervisor Agent]\033[0m Checking complexity for: '{context.user_prompt}'")
+        
+        req = urllib.request.Request(
+            self.url,
+            data=json.dumps({"instruction": context.user_prompt}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        
+        try:
+            with urllib.request.urlopen(req) as response:
+                analysis = json.loads(response.read().decode())
+                routing_path = analysis.get("routing_path")
+                
+                if routing_path == "complex":
+                    print("\033[93m[*] Detected a complex operation. Routing to Planner Agent.\033[0m")
+                    context.is_complex = True
+                    context.current_state = AgentState.PLANNING
+                else:
+                    print("\033[92m[*] Detected a simple operation. Routing to Parameter Agent.\033[0m")
+                    context.is_complex = False
+                    context.current_state = AgentState.PARAMETER_GATHERING
+                    
+        except urllib.error.URLError as e:
+            print(f"\033[91m[!] Failed to reach Supervisor API: {e}\033[0m")
+            context.execution_errors.append(str(e))
+            context.current_state = AgentState.ERROR_HANDLING
+            
+        return context
+
 class ParameterAgentInterface(BaseAgentInterface):
     """
     Interface for the LLM-driven Parameter Agent.
@@ -31,15 +68,6 @@ class ParameterAgentInterface(BaseAgentInterface):
             with urllib.request.urlopen(req) as response:
                 analysis = json.loads(response.read().decode())
                 
-                # Check complexity
-                if analysis.get("is_complex", False):
-                    print("\033[93m[*] Detected a complex operation. Skipping simple parameter gathering.\033[0m")
-                    context.is_complex = True
-                    context.parameter_steps = [context.user_prompt]
-                    context.current_state = AgentState.CODE_GENERATION
-                    return context
-                    
-                context.is_complex = False
                 context.shape_type = analysis.get("shape_detected")
                 if context.shape_type:
                     print(f"\033[94m[*] Detected Shape:\033[0m {context.shape_type}")
@@ -116,6 +144,111 @@ class ParameterAgentInterface(BaseAgentInterface):
             context.current_state = AgentState.ERROR_HANDLING
             
         return context
+
+class PlannerAgentInterface(BaseAgentInterface):
+    """
+    Interface for the Frontier Planning Agent.
+    """
+    def __init__(self, url: str = "http://127.0.0.1:8004/planner"):
+        self.url = url
+
+    def process(self, context: OrchestratorContext) -> OrchestratorContext:
+        print(f"\n\033[95m[Planner Agent]\033[0m Planning steps for: '{context.user_prompt}'...")
+        
+        # We need a loop here just like the parameter agent because the planner
+        # can ask for missing parameters for complex shapes.
+        
+        # Dictionary to store answers to planner's questions
+        # Note: In the future, this could be stored on the OrchestratorContext
+        # but for now we keep it localized to this planning session.
+        parameter_answers = {}
+        
+        while True:
+            payload = {
+                "request": context.user_prompt,
+                "context": {
+                    "parameter_answers": parameter_answers,
+                    # We send empty lists for these as they are used for iterative replanning (not implemented yet)
+                    "completed_steps": [],
+                    "remaining_steps": [],
+                    "errors": [],
+                    "pending_questions": [] 
+                }
+            }
+            
+            req = urllib.request.Request(
+                self.url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"}
+            )
+            
+            try:
+                with urllib.request.urlopen(req) as response:
+                    res_data = json.loads(response.read().decode())
+                    status = res_data.get("status")
+                    
+                    if status == "needs_parameters":
+                        questions = res_data.get("questions", [])
+                        for q in questions:
+                            q_id = q.get("parameter_id")
+                            q_text = q.get("question")
+                            reason = q.get("reason", "")
+                            
+                            # Skip if we already answered it
+                            if q_id in parameter_answers:
+                                continue
+                                
+                            print(f"\n\033[96m🤖 Planner Agent Asks:\033[0m \033[93m{q_text}\033[0m")
+                            if reason:
+                                print(f"\033[90m({reason})\033[0m")
+                                
+                            try:
+                                user_answer = input("\033[92mYour Answer > \033[0m").strip()
+                            except (EOFError, KeyboardInterrupt):
+                                print("\n\033[91m[!] Input interrupted. Aborting.\033[0m")
+                                context.current_state = AgentState.FAILED
+                                return context
+                                
+                            if user_answer:
+                                # Send raw string to the planner, let it parse it or we could format it
+                                parameter_answers[q_id] = user_answer
+                                
+                        # Loop again to send answers
+                        continue
+                        
+                    elif status == "planned":
+                        steps = res_data.get("steps", [])
+                        phases = res_data.get("phases", [])
+                        
+                        # Flatten steps if phases exist
+                        flat_steps = []
+                        if phases:
+                            for phase in phases:
+                                flat_steps.extend(phase.get("steps", []))
+                        else:
+                            flat_steps = steps
+                            
+                        print("\033[92m[+] Planner successfully generated steps:\033[0m")
+                        context.parameter_steps = []
+                        for i, step in enumerate(flat_steps):
+                            # Pass just the description/title to Code Generator
+                            step_text = step.get("description", step.get("title", ""))
+                            print(f"  {i+1}. {step_text}")
+                            context.parameter_steps.append(step_text)
+                            
+                        context.current_state = AgentState.CODE_GENERATION
+                        return context
+                        
+                    else:
+                        print(f"\033[91m[!] Unknown Planner Status: {status}\033[0m")
+                        context.current_state = AgentState.ERROR_HANDLING
+                        return context
+                        
+            except urllib.error.URLError as e:
+                print(f"\033[91m[!] Failed to reach Planner API: {e}\033[0m")
+                context.execution_errors.append(str(e))
+                context.current_state = AgentState.ERROR_HANDLING
+                return context
 
 class CodeGeneratorAgentInterface(BaseAgentInterface):
     """

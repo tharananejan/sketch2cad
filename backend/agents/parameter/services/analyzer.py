@@ -1,20 +1,19 @@
 import os
 import json
 from pathlib import Path
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from groq import Groq
 
 from schemas.request import AnalyzeRequest
 from schemas.response import AnalyzeResponse
 from config import MODEL_NAME, TEMPERATURE
 
-# Load environment variables from the agent's .env file
-env_path = Path(__file__).parent.parent / '.env'
-load_dotenv(env_path)
+# Load environment variables
+load_dotenv(find_dotenv())
 
-api_key = os.getenv("GROQ_API_KEY")
+api_key = os.getenv("GROQ_API_KEY_PARAMETER")
 if not api_key:
-    raise RuntimeError("GROQ_API_KEY environment variable is missing in the parameter agent's .env file.")
+    raise RuntimeError("GROQ_API_KEY_PARAMETER environment variable is missing.")
 
 client = Groq(api_key=api_key)
 

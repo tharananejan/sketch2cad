@@ -2,6 +2,8 @@ from typing import Dict
 from .context import OrchestratorContext, AgentState
 from .agent_interfaces import (
     BaseAgentInterface,
+    SupervisorAgentInterface,
+    PlannerAgentInterface,
     ParameterAgentInterface,
     CodeGeneratorAgentInterface,
     ExecutorAgentInterface
@@ -15,6 +17,8 @@ class AgentRouter:
     def __init__(self):
         # Register the agents
         self.agents: Dict[AgentState, BaseAgentInterface] = {
+            AgentState.COMPLEXITY_CHECK: SupervisorAgentInterface(),
+            AgentState.PLANNING: PlannerAgentInterface(),
             AgentState.PARAMETER_GATHERING: ParameterAgentInterface(),
             AgentState.CODE_GENERATION: CodeGeneratorAgentInterface(),
             AgentState.EXECUTION: ExecutorAgentInterface(),

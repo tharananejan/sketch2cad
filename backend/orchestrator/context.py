@@ -3,7 +3,9 @@ from typing import List, Dict, Optional
 from pydantic import BaseModel, Field
 
 class AgentState(Enum):
+    COMPLEXITY_CHECK = "COMPLEXITY_CHECK"
     PARAMETER_GATHERING = "PARAMETER_GATHERING"
+    PLANNING = "PLANNING"
     CODE_GENERATION = "CODE_GENERATION"
     EXECUTION = "EXECUTION"
     ERROR_HANDLING = "ERROR_HANDLING"
@@ -12,7 +14,7 @@ class AgentState(Enum):
 
 class OrchestratorContext(BaseModel):
     user_prompt: str
-    current_state: AgentState = AgentState.PARAMETER_GATHERING
+    current_state: AgentState = AgentState.COMPLEXITY_CHECK
     
     # Parameter Agent State
     is_complex: Optional[bool] = None

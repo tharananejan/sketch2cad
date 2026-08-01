@@ -1,9 +1,9 @@
 import sys
 import os
 
-# We remove GROQ_API_KEY if it exists to test the error handling
-if 'GROQ_API_KEY' in os.environ:
-    del os.environ['GROQ_API_KEY']
+# We remove GROQ_API_KEY_PARAMETER if it exists to test the error handling
+if 'GROQ_API_KEY_PARAMETER' in os.environ:
+    del os.environ['GROQ_API_KEY_PARAMETER']
 
 sys.path.append(r'd:\FreeCadAgent\sketch2cad\backend\agents')
 

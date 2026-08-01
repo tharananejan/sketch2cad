@@ -14,7 +14,7 @@ class Settings:
     """Configuration settings loaded from environment variables with sensible defaults."""
 
     def __init__(self) -> None:
-        self.GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+        self.GROQ_API_KEY: str = os.getenv("GROQ_API_KEY_SUPERVISOR", "")
         self.LLM_MODEL: str = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
 
 

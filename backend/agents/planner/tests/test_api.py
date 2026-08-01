@@ -191,7 +191,7 @@ def test_endpoint_returns_json_error_envelope_for_missing_provider_config(
     get_planner_service.cache_clear()
     monkeypatch.setattr("backend.agents.planner.config.load_dotenv", lambda *_args, **_kwargs: None)
     monkeypatch.delenv("PLANNER_PROVIDER", raising=False)
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY_PLANNER", raising=False)
     monkeypatch.delenv("GROQ_MODEL", raising=False)
 
     try:
@@ -204,7 +204,7 @@ def test_endpoint_returns_json_error_envelope_for_missing_provider_config(
     assert response.json() == {
         "error": {
             "code": "planner_configuration_error",
-            "message": "GROQ_API_KEY must be configured.",
-            "details": {"setting": "GROQ_API_KEY"},
+            "message": "GROQ_API_KEY_PLANNER must be configured.",
+            "details": {"setting": "GROQ_API_KEY_PLANNER"},
         }
     }
