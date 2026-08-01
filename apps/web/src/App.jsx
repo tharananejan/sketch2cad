@@ -264,6 +264,33 @@ export default function App() {
     setQuery('')
   }
 
+  function newProject() {
+    const count = projects.filter((p) => /^New project \d+$/.test(p.name)).length
+    const project = {
+      id: uid(),
+      name: `New project ${count + 1}`,
+      chats: [],
+    }
+    setProjects((prev) => [project, ...prev])
+    setActiveProjectId(project.id)
+    setActiveChatId(null)
+    setQuery('')
+    setSidebarCollapsed(false)
+  }
+
+  function selectProjectAndExpand(id) {
+    selectProject(id)
+    setSidebarCollapsed(false)
+  }
+
+  function expandSidebar() {
+    if (isMobile) {
+      setSidebarOpen(true)
+    } else {
+      setSidebarCollapsed(false)
+    }
+  }
+
   function selectChat(id) {
     setActiveChatId(id)
     setQuery('')
@@ -297,17 +324,13 @@ export default function App() {
     <>
       <div className="app-shell" inert={settingsOpen ? '' : undefined}>
       <TopBar
-        query={query}
-        onQuery={setQuery}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onLogout={handleLogout}
         onToggleSidebar={toggleSidebar}
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
         sidebarVisible={isMobile ? sidebarOpen : !sidebarCollapsed}
       />
 
-      <div className={`main-row ${sidebarCollapsed ? 'collapsed' : ''}`}>
+      <div className={`main-row ${sidebarCollapsed && !isMobile ? 'collapsed' : ''}`}>
         <Sidebar
           projects={projects}
           filteredProjects={filteredProjects}
@@ -316,13 +339,20 @@ export default function App() {
           activeChatId={activeChatId}
           filteredChats={filteredChats}
           query={query}
+          onQuery={setQuery}
           totalChats={activeProject?.chats.length ?? 0}
           onSelectProject={selectProject}
           onSelectChat={selectChat}
           onNewChat={newChat}
+          onNewProject={newProject}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onLogout={handleLogout}
           open={sidebarOpen}
-          collapsed={sidebarCollapsed}
+          collapsed={isMobile ? false : sidebarCollapsed}
+          isMobile={isMobile}
           onClose={() => setSidebarOpen(false)}
+          onExpand={expandSidebar}
+          onSelectProjectRail={selectProjectAndExpand}
         />
 
         <main className="pane">
