@@ -80,9 +80,15 @@ export const IconCheck = ({ size = 14 }) => (
   </svg>
 )
 
-export const IconMenu = ({ size = 18 }) => (
+export const IconChevronLeft = ({ size = 18 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
-    <path d="M4 7h16M4 12h16M4 17h10" />
+    <path d="m15 6-6 6 6 6" />
+  </svg>
+)
+
+export const IconChevronRight = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <path d="m9 6 6 6-6 6" />
   </svg>
 )
 

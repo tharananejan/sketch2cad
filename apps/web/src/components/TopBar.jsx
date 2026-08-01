@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { LogoMark, IconSearch, IconChevron, IconSettings, IconLogout, IconMenu, IconSun, IconMoon } from './icons'
+import { LogoMark, IconSearch, IconChevron, IconSettings, IconLogout, IconChevronLeft, IconChevronRight, IconSun, IconMoon } from './icons'
 
-export default function TopBar({ query, onQuery, onOpenSettings, onLogout, onToggleSidebar, theme, onToggleTheme }) {
+export default function TopBar({ query, onQuery, onOpenSettings, onLogout, onToggleSidebar, theme, onToggleTheme, sidebarVisible }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [hovering, setHovering] = useState(false)
   const rootRef = useRef(null)
@@ -42,16 +42,16 @@ export default function TopBar({ query, onQuery, onOpenSettings, onLogout, onTog
       <div className="topbar-left">
         <button
           type="button"
-          className="icon-btn menu-btn"
+          className="icon-btn sidebar-toggle"
           onClick={onToggleSidebar}
-          aria-label="Toggle project sidebar"
+          aria-label={sidebarVisible ? 'Hide project sidebar' : 'Show project sidebar'}
+          title={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
         >
-          <IconMenu />
+          {sidebarVisible ? <IconChevronLeft size={17} /> : <IconChevronRight size={17} />}
         </button>
         <a className="brand" href="#root" aria-label="sketch2cad home">
           <LogoMark size={26} />
           <span className="brand-word">sketch2cad</span>
-          <span className="brand-badge mono">LOCAL</span>
         </a>
       </div>
 
@@ -62,8 +62,8 @@ export default function TopBar({ query, onQuery, onOpenSettings, onLogout, onTog
           type="search"
           value={query}
           onChange={(e) => onQuery(e.target.value)}
-          placeholder="Search chats"
-          aria-label="Search chats"
+          placeholder="Search projects & chats"
+          aria-label="Search projects and chats"
         />
         <kbd className="mono">/</kbd>
       </div>

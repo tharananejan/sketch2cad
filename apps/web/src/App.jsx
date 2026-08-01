@@ -134,12 +134,16 @@ const nowTime = () =>
 
 export default function App() {
   const [projects, setProjects] = useState(seed)
-  const [activeProjectId, setActiveProjectId] = useState('p1')
-  const [activeChatId, setActiveChatId] = useState('c1')
+  const [activeProjectId, setActiveProjectId] = useState(null)
+  const [activeChatId, setActiveChatId] = useState(null)
   const [query, setQuery] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [signedOut, setSignedOut] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false,
+  )
   const [draftingChatId, setDraftingChatId] = useState(null)
   const [theme, setTheme] = useState(() => {
     let stored = null
@@ -167,32 +171,70 @@ export default function App() {
     }
   }, [theme])
 
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 900px)')
+    function sync() {
+      setIsMobile(mq.matches)
+    }
+    sync()
+    mq.addEventListener?.('change', sync)
+    return () => mq.removeEventListener?.('change', sync)
+  }, [])
+
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
 
-  const activeProject = projects.find((p) => p.id === activeProjectId) ?? projects[0]
-  const activeChat = activeProject.chats.find((c) => c.id === activeChatId) ?? activeProject.chats[0]
+  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null
+  const activeChat =
+    activeProject?.chats.find((c) => c.id === activeChatId) ?? null
+
+  const filteredProjects = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return projects
+    return projects.filter((p) => p.name.toLowerCase().includes(q))
+  }, [query, projects])
 
   const filteredChats = useMemo(() => {
+    if (!activeProject) return []
     const q = query.trim().toLowerCase()
     if (!q) return activeProject.chats
     return activeProject.chats.filter((c) => c.name.toLowerCase().includes(q))
   }, [query, activeProject])
 
-  function patchChat(chatId, fn) {
+  function patchChat(pid, cid, fn) {
     setProjects((prev) =>
       prev.map((p) =>
-        p.id === activeProjectId
-          ? { ...p, chats: p.chats.map((c) => (c.id === chatId ? fn(c) : c)) }
+        p.id === pid
+          ? { ...p, chats: p.chats.map((c) => (c.id === cid ? fn(c) : c)) }
           : p,
       ),
     )
   }
 
+  function ensureChat() {
+    // Returns a working (projectId, chatId) pair, creating a chat if none is open.
+    let pid = activeProjectId
+    if (!pid) pid = projects[0]?.id
+    if (!pid) return null
+    let cid = activeChatId
+    if (!cid || !projects.find((p) => p.id === pid)?.chats.some((c) => c.id === cid)) {
+      const chat = { id: uid(), name: 'New chat', messages: [] }
+      cid = chat.id
+      setProjects((prev) =>
+        prev.map((p) => (p.id === pid ? { ...p, chats: [chat, ...p.chats] } : p)),
+      )
+      setActiveProjectId(pid)
+      setActiveChatId(cid)
+    }
+    return { pid, cid }
+  }
+
   function sendMessage(raw) {
     const text = raw.trim()
     if (!text) return
-    const id = activeChatId
-    patchChat(id, (c) => ({
+    const pair = ensureChat()
+    if (!pair) return
+    const { pid, cid } = pair
+    patchChat(pid, cid, (c) => ({
       ...c,
       name:
         c.name === 'New chat'
@@ -200,21 +242,24 @@ export default function App() {
           : c.name,
       messages: [...c.messages, { id: uid(), role: 'user', text, time: nowTime() }],
     }))
-    setDraftingChatId(id)
+    setDraftingChatId(cid)
     window.setTimeout(() => {
-      patchChat(id, (c) => ({
+      patchChat(pid, cid, (c) => ({
         ...c,
         messages: [...c.messages, { id: uid(), role: 'assistant', text: pickReply(text), time: nowTime() }],
       }))
-      setDraftingChatId((cur) => (cur === id ? null : cur))
+      setDraftingChatId((cur) => (cur === cid ? null : cur))
     }, 1000 + Math.random() * 700)
   }
 
   function newChat() {
+    const pid = activeProjectId ?? projects[0]?.id
+    if (!pid) return
     const chat = { id: uid(), name: 'New chat', messages: [] }
     setProjects((prev) =>
-      prev.map((p) => (p.id === activeProjectId ? { ...p, chats: [chat, ...p.chats] } : p)),
+      prev.map((p) => (p.id === pid ? { ...p, chats: [chat, ...p.chats] } : p)),
     )
+    setActiveProjectId(pid)
     setActiveChatId(chat.id)
     setQuery('')
   }
@@ -226,10 +271,18 @@ export default function App() {
   }
 
   function selectProject(id) {
-    const p = projects.find((x) => x.id === id)
+    if (id === activeProjectId) return
     setActiveProjectId(id)
-    if (p) setActiveChatId(p.chats[0]?.id)
+    setActiveChatId(null)
     setQuery('')
+  }
+
+  function toggleSidebar() {
+    if (isMobile) {
+      setSidebarOpen((v) => !v)
+    } else {
+      setSidebarCollapsed((v) => !v)
+    }
   }
 
   function handleLogout() {
@@ -248,23 +301,27 @@ export default function App() {
         onQuery={setQuery}
         onOpenSettings={() => setSettingsOpen(true)}
         onLogout={handleLogout}
-        onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        onToggleSidebar={toggleSidebar}
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+        sidebarVisible={isMobile ? sidebarOpen : !sidebarCollapsed}
       />
 
-      <div className="main-row">
+      <div className={`main-row ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <Sidebar
           projects={projects}
+          filteredProjects={filteredProjects}
+          activeProject={activeProject}
           activeProjectId={activeProjectId}
           activeChatId={activeChatId}
           filteredChats={filteredChats}
           query={query}
-          totalChats={activeProject.chats.length}
+          totalChats={activeProject?.chats.length ?? 0}
           onSelectProject={selectProject}
           onSelectChat={selectChat}
           onNewChat={newChat}
           open={sidebarOpen}
+          collapsed={sidebarCollapsed}
           onClose={() => setSidebarOpen(false)}
         />
 

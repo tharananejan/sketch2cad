@@ -118,6 +118,36 @@ function Composer({ onSend }) {
   )
 }
 
+const WELCOME_IDEAS = [
+  'Mounting bracket with four 6mm holes and a back lip',
+  '60mm cooling duct bent 90\u00b0 to a square flange',
+  'Two-part gearbox housing with 10mm walls',
+  'Enclosure with snap-fit lid and M3 bosses',
+]
+
+function WelcomeState({ onPick }) {
+  return (
+    <div className="welcome">
+      <LogoMark size={44} />
+      <p className="welcome-eyebrow mono">sketch2cad &middot; the drafting desk</p>
+      <h1 className="welcome-title">What are we drafting?</h1>
+      <p className="welcome-sub">
+        Pick a project in the sidebar to open its chats, or start a new one from an idea below.
+      </p>
+
+      <div className="welcome-chips">
+        {WELCOME_IDEAS.map((s) => (
+          <button key={s} type="button" className="welcome-chip" onClick={() => onPick(s)}>
+            {s}
+          </button>
+        ))}
+      </div>
+
+      <p className="welcome-hint mono">or describe a part in the box below &mdash; no sketch needed</p>
+    </div>
+  )
+}
+
 export default function ChatPane({ chat, drafting, onSend }) {
   const scrollRef = useRef(null)
 
@@ -127,17 +157,19 @@ export default function ChatPane({ chat, drafting, onSend }) {
   }, [chat?.id, chat?.messages?.length, drafting])
 
   const messages = chat?.messages ?? []
-  const threadTitle = chat?.name ?? ''
+  const threadTitle = chat?.name ?? 'Ready to draft'
 
   return (
-    <section className="chatpane" aria-label={`Chat: ${threadTitle}`}>
+    <section className="chatpane" aria-label={chat ? `Chat: ${threadTitle}` : 'Drafting desk'}>
       <div className="thread-head">
         <h2 className="thread-title">{threadTitle}</h2>
         <span className="thread-meta mono">parametric &middot; FreeCAD</span>
       </div>
 
       <div className="thread-scroll" ref={scrollRef}>
-        {messages.length === 0 ? (
+        {!chat ? (
+          <WelcomeState onPick={onSend} />
+        ) : messages.length === 0 ? (
           <BlueprintSheet onPick={onSend} />
         ) : (
           <div className="thread">
