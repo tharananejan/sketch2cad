@@ -7,7 +7,95 @@ import {
   IconChevron,
   IconSettings,
   IconLogout,
+  IconDots,
 } from './icons'
+
+function RowMenu({ onRename, onDelete, label }) {
+  const [open, setOpen] = useState(false)
+  const [armed, setArmed] = useState(false)
+  const [up, setUp] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDown(e) {
+      if (ref.current && !ref.current.contains(e.target)) {
+        setOpen(false)
+        setArmed(false)
+      }
+      if (e.key === 'Escape') {
+        setOpen(false)
+        setArmed(false)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onDown)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onDown)
+    }
+  }, [open])
+
+  function toggle() {
+    setArmed(false)
+    const willOpen = !open
+    if (willOpen) {
+      // Flip the popup upward if it would clip below the scroll region.
+      const btn = ref.current?.querySelector('.row-kebab')
+      const region = ref.current?.closest('.projects-region, .chats-region')
+      if (btn && region) {
+        const btnRect = btn.getBoundingClientRect()
+        const regionRect = region.getBoundingClientRect()
+        setUp(regionRect.bottom - btnRect.bottom < 168)
+      }
+    }
+    setOpen(willOpen)
+  }
+
+  return (
+    <span className="row-menu" ref={ref} onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        className="row-kebab"
+        aria-label={`Actions for ${label}`}
+        aria-expanded={open}
+        onClick={toggle}
+      >
+        <IconDots size={15} />
+      </button>
+      {open && (
+        <div className={`row-menu-pop ${up ? 'up' : ''}`} role="menu">
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onRename()
+            }}
+          >
+            Rename
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={`danger ${armed ? 'armed' : ''}`}
+            onClick={() => {
+              if (armed) {
+                setOpen(false)
+                setArmed(false)
+                onDelete()
+              } else {
+                setArmed(true)
+              }
+            }}
+          >
+            {armed ? 'Really delete?' : 'Delete'}
+          </button>
+        </div>
+      )}
+    </span>
+  )
+}
 
 export default function Sidebar({
   projects,
@@ -23,6 +111,10 @@ export default function Sidebar({
   onSelectChat,
   onNewChat,
   onNewProject,
+  onRenameProject,
+  onDeleteProject,
+  onRenameChat,
+  onDeleteChat,
   onOpenSettings,
   onLogout,
   open,
@@ -34,6 +126,8 @@ export default function Sidebar({
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [hovering, setHovering] = useState(false)
+  const [editing, setEditing] = useState(null) // { kind: 'project'|'chat', id }
+  const [draft, setDraft] = useState('')
   const rootRef = useRef(null)
   const searchRef = useRef(null)
   const pendingFocus = useRef(false)
@@ -81,6 +175,19 @@ export default function Sidebar({
       searchRef.current?.focus()
     }
   }, [collapsed, open])
+
+  function startRename(kind, id, current) {
+    setEditing({ kind, id })
+    setDraft(current)
+  }
+
+  function commitRename() {
+    const name = draft.trim()
+    if (!name || !editing) return
+    if (editing.kind === 'project') onRenameProject(editing.id, name)
+    else onRenameChat(editing.id, name)
+    setEditing(null)
+  }
 
   function railSearch() {
     pendingFocus.current = true
@@ -155,18 +262,42 @@ export default function Sidebar({
                 <p className="no-matches mono">No matching projects</p>
               ) : (
                 filteredProjects.map((p) => (
-                  <button
+                  <div
+                    className={`row-wrap ${p.id === activeProjectId ? 'active-row' : ''}`}
                     key={p.id}
-                    type="button"
-                    role="option"
-                    aria-selected={p.id === activeProjectId}
-                    className={`project-row ${p.id === activeProjectId ? 'active' : ''}`}
-                    onClick={() => onSelectProject(p.id)}
                   >
-                    <IconProject size={15} />
-                    <span className="project-name">{p.name}</span>
-                    <span className="mono project-count">{p.chats.length}</span>
-                  </button>
+                    {editing && editing.kind === 'project' && editing.id === p.id ? (
+                      <input
+                        autoFocus
+                        className="rename-input"
+                        value={draft}
+                        aria-label="Rename project"
+                        onChange={(e) => setDraft(e.target.value)}
+                        onBlur={commitRename}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitRename()
+                          if (e.key === 'Escape') setEditing(null)
+                        }}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={p.id === activeProjectId}
+                        className={`project-row ${p.id === activeProjectId ? 'active' : ''}`}
+                        onClick={() => onSelectProject(p.id)}
+                      >
+                        <IconProject size={15} />
+                        <span className="project-name">{p.name}</span>
+                        <span className="mono project-count">{p.chats.length}</span>
+                      </button>
+                    )}
+                    <RowMenu
+                      label={p.name}
+                      onRename={() => startRename('project', p.id, p.name)}
+                      onDelete={() => onDeleteProject(p.id)}
+                    />
+                  </div>
                 ))
               )}
             </div>
@@ -192,20 +323,44 @@ export default function Sidebar({
                   </p>
                 ) : (
                   filteredChats.map((c) => (
-                    <button
+                    <div
+                      className={`row-wrap ${c.id === activeChatId ? 'active-row' : ''}`}
                       key={c.id}
-                      type="button"
-                      role="option"
-                      aria-selected={c.id === activeChatId}
-                      className={`chat-row ${c.id === activeChatId ? 'active' : ''}`}
-                      onClick={() => onSelectChat(c.id)}
                     >
-                      <IconChat size={14} />
-                      <span className="chat-name">{c.name}</span>
-                      <span className="mono chat-time">
-                        {c.messages.length > 0 ? c.messages[c.messages.length - 1].time : ''}
-                      </span>
-                    </button>
+                      {editing && editing.kind === 'chat' && editing.id === c.id ? (
+                        <input
+                          autoFocus
+                          className="rename-input"
+                          value={draft}
+                          aria-label="Rename chat"
+                          onChange={(e) => setDraft(e.target.value)}
+                          onBlur={commitRename}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitRename()
+                            if (e.key === 'Escape') setEditing(null)
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={c.id === activeChatId}
+                          className={`chat-row ${c.id === activeChatId ? 'active' : ''}`}
+                          onClick={() => onSelectChat(c.id)}
+                        >
+                          <IconChat size={14} />
+                          <span className="chat-name">{c.name}</span>
+                          <span className="mono chat-time">
+                            {c.messages.length > 0 ? c.messages[c.messages.length - 1].time : ''}
+                          </span>
+                        </button>
+                      )}
+                      <RowMenu
+                        label={c.name}
+                        onRename={() => startRename('chat', c.id, c.name)}
+                        onDelete={() => onDeleteChat(c.id)}
+                      />
+                    </div>
                   ))
                 )}
               </div>

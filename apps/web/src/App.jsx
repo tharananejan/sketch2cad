@@ -211,10 +211,16 @@ export default function App() {
   }
 
   function ensureChat() {
-    // Returns a working (projectId, chatId) pair, creating a chat if none is open.
+    // Returns a working (projectId, chatId) pair, creating a chat — or a whole
+    // project if the desk is empty — when none is open.
     let pid = activeProjectId
     if (!pid) pid = projects[0]?.id
-    if (!pid) return null
+    if (!pid) {
+      const project = { id: uid(), name: 'New project 1', chats: [] }
+      pid = project.id
+      setProjects((prev) => (prev.length ? prev : [project]))
+      setActiveProjectId(pid)
+    }
     let cid = activeChatId
     if (!cid || !projects.find((p) => p.id === pid)?.chats.some((c) => c.id === cid)) {
       const chat = { id: uid(), name: 'New chat', messages: [] }
@@ -230,9 +236,9 @@ export default function App() {
 
   function sendMessage(raw) {
     const text = raw.trim()
-    if (!text) return
+    if (!text) return false
     const pair = ensureChat()
-    if (!pair) return
+    if (!pair) return false
     const { pid, cid } = pair
     patchChat(pid, cid, (c) => ({
       ...c,
@@ -250,6 +256,7 @@ export default function App() {
       }))
       setDraftingChatId((cur) => (cur === cid ? null : cur))
     }, 1000 + Math.random() * 700)
+    return true
   }
 
   function newChat() {
@@ -276,6 +283,43 @@ export default function App() {
     setActiveChatId(null)
     setQuery('')
     setSidebarCollapsed(false)
+  }
+
+  function renameProject(id, name) {
+    const n = name.trim()
+    if (!n) return
+    setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, name: n } : p)))
+  }
+
+  function deleteProject(id) {
+    setProjects((prev) => prev.filter((p) => p.id !== id))
+    if (activeProjectId === id) {
+      setActiveProjectId(null)
+      setActiveChatId(null)
+    }
+  }
+
+  function renameChat(id, name) {
+    const n = name.trim()
+    if (!n) return
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === activeProjectId
+          ? { ...p, chats: p.chats.map((c) => (c.id === id ? { ...c, name: n } : c)) }
+          : p,
+      ),
+    )
+  }
+
+  function deleteChat(id) {
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === activeProjectId
+          ? { ...p, chats: p.chats.filter((c) => c.id !== id) }
+          : p,
+      ),
+    )
+    if (activeChatId === id) setActiveChatId(null)
   }
 
   function selectProjectAndExpand(id) {
@@ -345,6 +389,10 @@ export default function App() {
           onSelectChat={selectChat}
           onNewChat={newChat}
           onNewProject={newProject}
+          onRenameProject={renameProject}
+          onDeleteProject={deleteProject}
+          onRenameChat={renameChat}
+          onDeleteChat={deleteChat}
           onOpenSettings={() => setSettingsOpen(true)}
           onLogout={handleLogout}
           open={sidebarOpen}

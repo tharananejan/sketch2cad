@@ -92,6 +92,14 @@ export const IconChevronRight = ({ size = 18 }) => (
   </svg>
 )
 
+export const IconDots = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" stroke="none">
+    <circle cx="12" cy="5.5" r="1.6" />
+    <circle cx="12" cy="12" r="1.6" />
+    <circle cx="12" cy="18.5" r="1.6" />
+  </svg>
+)
+
 export const IconClose = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
     <path d="m6 6 12 12M18 6 6 18" />
