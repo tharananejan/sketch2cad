@@ -50,3 +50,5 @@ chroma_db/
 # OS files
 .DS_Store
 Thumbs.db
+
+node_modules/
