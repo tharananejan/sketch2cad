@@ -280,9 +280,9 @@ export default function App() {
     return { pid, cid }
   }
 
-  function sendMessage(raw) {
+  function sendMessage(raw, attachments = []) {
     const text = raw.trim()
-    if (!text) return false
+    if (!text && attachments.length === 0) return false
     const pair = ensureChat()
     if (!pair) return false
     const { pid, cid } = pair
@@ -290,9 +290,10 @@ export default function App() {
       ...c,
       name:
         c.name === 'New chat'
-          ? text.split(/\s+/).slice(0, 5).join(' ') + (text.split(/\s+/).length > 5 ? '\u2026' : '')
+          ? (text || 'Sketch').split(/\s+/).slice(0, 5).join(' ') +
+            ((text || 'Sketch').split(/\s+/).length > 5 ? '\u2026' : '')
           : c.name,
-      messages: [...c.messages, { id: uid(), role: 'user', text, time: nowTime() }],
+      messages: [...c.messages, { id: uid(), role: 'user', text, attachments, time: nowTime() }],
     }))
     setDraftingChatId(cid)
     window.setTimeout(() => {

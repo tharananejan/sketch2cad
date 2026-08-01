@@ -106,6 +106,21 @@ export const IconClose = ({ size = 16 }) => (
   </svg>
 )
 
+export const IconImage = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+    <circle cx="9" cy="9.5" r="1.6" />
+    <path d="m5 17.5 4.2-4.2 2.4 2.4 3-3 4.4 4.8" />
+  </svg>
+)
+
+export const IconSketch = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <path d="m4 20 4.5-1.2L19.8 7.5a2.1 2.1 0 0 0-3-3L5.5 15.8 4 20Z" />
+    <path d="m14.5 6.8 2.7 2.7" />
+  </svg>
+)
+
 export const IconShare = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
     <circle cx="18" cy="5.5" r="2.6" />

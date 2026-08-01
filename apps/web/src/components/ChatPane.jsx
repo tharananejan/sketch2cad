@@ -1,7 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import BlueprintSheet from './BlueprintSheet'
+import SketchPad from './SketchPad'
 import { DESIGNS } from '../designs'
-import { LogoMark, IconAttach, IconSend, IconCopy, IconCheck } from './icons'
+import {
+  LogoMark,
+  IconAttach,
+  IconSend,
+  IconCopy,
+  IconCheck,
+  IconImage,
+  IconSketch,
+  IconClose,
+} from './icons'
+
+const uid = () => Math.random().toString(36).slice(2, 9)
 
 function Message({ msg, onCopy }) {
   const [copied, setCopied] = useState(false)
@@ -15,6 +27,13 @@ function Message({ msg, onCopy }) {
         </span>
       )}
       <div className="msg-body">
+        {msg.attachments?.length > 0 && (
+          <div className="msg-attachments">
+            {msg.attachments.map((a) => (
+              <img key={a.id} src={a.url} alt={a.name || 'Attached sketch'} className="msg-attach-img" />
+            ))}
+          </div>
+        )}
         <div className="msg-bubble">{msg.text}</div>
         <div className="msg-meta mono">
           <span>{msg.time}</span>
@@ -98,8 +117,27 @@ function WelcomeState({ design, index, onPick }) {
 function Composer({ onSend, suggestedPrompt }) {
   const [value, setValue] = useState('')
   const [typed, setTyped] = useState('')
+  const [attachOpen, setAttachOpen] = useState(false)
+  const [sketchOpen, setSketchOpen] = useState(false)
+  const [attachments, setAttachments] = useState([])
   const ref = useRef(null)
+  const fileRef = useRef(null)
   const typing = !!suggestedPrompt && value === ''
+
+  // Close the attach popup on outside click or Escape.
+  useEffect(() => {
+    if (!attachOpen) return
+    function onDown(e) {
+      if (!e.target.closest('.attach-wrap')) setAttachOpen(false)
+      if (e.key === 'Escape') setAttachOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onDown)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onDown)
+    }
+  }, [attachOpen])
 
   // Type the suggested prompt out, character by character.
   // Stops as soon as the user takes over (typing becomes false).
@@ -126,13 +164,38 @@ function Composer({ onSend, suggestedPrompt }) {
     autoGrow()
   }, [typed])
 
+  function pickImage(e) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    const url = URL.createObjectURL(f)
+    setAttachments((a) => [...a, { id: uid(), kind: 'image', url, name: f.name }])
+    setAttachOpen(false)
+    e.target.value = ''
+  }
+
+  function attachSketch(url) {
+    setAttachments((a) => [...a, { id: uid(), kind: 'sketch', url, name: 'Sketch' }])
+    setSketchOpen(false)
+  }
+
+  function removeAttachment(id) {
+    // Revoke the object URL before the chip is dropped — nothing else
+    // references it once it's out of the preview list.
+    const gone = attachments.find((x) => x.id === id)
+    if (gone?.kind === 'image') URL.revokeObjectURL(gone.url)
+    setAttachments((arr) => arr.filter((x) => x.id !== id))
+  }
+
   function submit() {
     const text = typing ? suggestedPrompt : value
-    if (!text.trim()) return
-    const sent = onSend(text)
+    if (!text.trim() && attachments.length === 0) return
+    const sent = onSend(text, attachments)
     if (sent === false) return // nothing accepted — keep the text
+    // Note: object URLs stay alive for the session — the sent message
+    // renders the same image, so we must NOT revoke them here.
     setValue('')
     setTyped('')
+    setAttachments([])
     requestAnimationFrame(() => {
       if (ref.current) {
         ref.current.style.height = 'auto'
@@ -146,15 +209,64 @@ function Composer({ onSend, suggestedPrompt }) {
     if (typing) setValue(typed)
   }
 
-  const canSend = (typing ? typed : value).trim() !== ''
+  const canSend = (typing ? typed : value).trim() !== '' || attachments.length > 0
 
   return (
     <div className="composer-wrap">
+      {attachments.length > 0 && (
+        <div className="attach-previews" aria-label="Attached sketches">
+          {attachments.map((a) => (
+            <span className="attach-chip" key={a.id}>
+              <img src={a.url} alt={a.name} />
+              <button
+                type="button"
+                className="chip-x"
+                aria-label={`Remove ${a.name}`}
+                onClick={() => removeAttachment(a.id)}
+              >
+                <IconClose size={11} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="composer">
-        <button type="button" className="attach-btn" aria-label="Attach a sketch">
-          <IconAttach />
-          <span className="attach-label">Attach sketch</span>
-        </button>
+        <span className="attach-wrap">
+          <button
+            type="button"
+            className={`attach-btn ${attachOpen ? 'open' : ''}`}
+            aria-label="Attach a sketch"
+            aria-expanded={attachOpen}
+            onClick={() => setAttachOpen((v) => !v)}
+          >
+            <IconAttach />
+          </button>
+          {attachOpen && (
+            <div className="attach-pop" role="menu" aria-label="Attach options">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => fileRef.current?.click()}
+              >
+                <IconImage size={15} />
+                Upload image
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setAttachOpen(false)
+                  setSketchOpen(true)
+                }}
+              >
+                <IconSketch size={15} />
+                Sketch pad
+              </button>
+            </div>
+          )}
+          <input ref={fileRef} type="file" accept="image/*" hidden onChange={pickImage} />
+        </span>
         <div className="composer-input-wrap">
           {typing && (
             <div className="suggestion-overlay" aria-hidden="true">
@@ -193,6 +305,8 @@ function Composer({ onSend, suggestedPrompt }) {
       <p className="composer-hint mono">
         {typing ? 'Suggested — press Enter to use' : 'Enter to send · Shift+Enter for a new line'}
       </p>
+
+      {sketchOpen && <SketchPad onClose={() => setSketchOpen(false)} onAttach={attachSketch} />}
     </div>
   )
 }
