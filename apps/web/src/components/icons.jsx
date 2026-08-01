@@ -92,6 +92,19 @@ export const IconClose = ({ size = 16 }) => (
   </svg>
 )
 
+export const IconSun = ({ size = 17 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <circle cx="12" cy="12" r="4.2" />
+    <path d="M12 2.6v2.3M12 19.1v2.3M2.6 12h2.3M19.1 12h2.3M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4 17 7M7 17l-1.6 1.6" />
+  </svg>
+)
+
+export const IconMoon = ({ size = 17 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <path d="M20.6 14.6A8.6 8.6 0 0 1 9.4 3.4a8.6 8.6 0 1 0 11.2 11.2Z" />
+  </svg>
+)
+
 /* Brand mark: a wobbly hand-sketched line resolving into crisp CAD linework. */
 export const LogoMark = ({ size = 26 }) => (
   <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className="logo-mark">

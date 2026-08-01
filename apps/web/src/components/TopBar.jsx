@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { LogoMark, IconSearch, IconChevron, IconSettings, IconLogout, IconMenu } from './icons'
+import { LogoMark, IconSearch, IconChevron, IconSettings, IconLogout, IconMenu, IconSun, IconMoon } from './icons'
 
-export default function TopBar({ query, onQuery, onOpenSettings, onLogout, onToggleSidebar }) {
+export default function TopBar({ query, onQuery, onOpenSettings, onLogout, onToggleSidebar, theme, onToggleTheme }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [hovering, setHovering] = useState(false)
   const rootRef = useRef(null)
@@ -68,12 +68,23 @@ export default function TopBar({ query, onQuery, onOpenSettings, onLogout, onTog
         <kbd className="mono">/</kbd>
       </div>
 
-      <div
-        className="profile-wrap"
-        ref={rootRef}
-        onMouseEnter={() => setHovering(true)}
-        onMouseLeave={() => setHovering(false)}
-      >
+      <div className="topbar-actions">
+        <button
+          type="button"
+          className="theme-btn"
+          onClick={onToggleTheme}
+          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        >
+          {theme === 'dark' ? <IconSun size={17} /> : <IconMoon size={17} />}
+        </button>
+
+        <div
+          className="profile-wrap"
+          ref={rootRef}
+          onMouseEnter={() => setHovering(true)}
+          onMouseLeave={() => setHovering(false)}
+        >
         <button
           type="button"
           className="profile-btn"
@@ -119,6 +130,7 @@ export default function TopBar({ query, onQuery, onOpenSettings, onLogout, onTog
             <IconLogout />
             Log out
           </button>
+        </div>
         </div>
       </div>
     </header>

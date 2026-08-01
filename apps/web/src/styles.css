@@ -20,6 +20,26 @@
   --sheet: #14418f;
   --sheet-deep: #0e3473;
   --mark: #e85d1f;
+  --grid-tint: rgba(30, 35, 43, 0.04);
+
+  color-scheme: light;
+}
+
+/* ---- dark theme ---- */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #12151a;
+  --panel: #191d24;
+  --panel-2: #20252e;
+  --line: #2a313c;
+  --line-strong: #3b4553;
+  --ink: #e8edf3;
+  --graphite: #9aa6b5;
+  --faint: #6e7a8a;
+  --blueprint-soft: rgba(64, 138, 255, 0.16);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 10px 34px rgba(0, 0, 0, 0.55);
+  --grid-tint: rgba(255, 255, 255, 0.05);
 
   /* type */
   --font-ui: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
@@ -53,6 +73,7 @@ body {
   color: var(--ink);
   background: var(--paper);
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 button {
@@ -205,9 +226,38 @@ textarea {
 
 /* profile + hover menu */
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-self: end;
+}
+
 .profile-wrap {
   position: relative;
-  justify-self: end;
+}
+
+.theme-btn {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--graphite);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.theme-btn:hover {
+  color: var(--blueprint);
+  border-color: var(--line-strong);
+  background: var(--panel);
+}
+
+.theme-btn:active {
+  transform: scale(0.94);
 }
 
 .profile-btn {
@@ -1053,42 +1103,98 @@ textarea {
   font-size: 10px;
 }
 
-/* ============ settings ============ */
+/* ============ settings (modal) ============ */
 
-.settingspane {
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(10px, 2.4vw, 30px);
+  background: rgba(16, 20, 27, 0.48);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  animation: modal-fade 0.18s ease;
+}
+
+@keyframes modal-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.settings-modal {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  animation: modal-in 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.settings-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-modal .settings-title {
+  margin: 6px 0 0;
+  font-size: 24px;
+}
+
+.settings-modal-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  max-width: 720px;
-  margin: 0 auto;
-  width: 100%;
-  padding: 28px 26px 40px;
+  padding: 20px 22px 28px;
 }
 
-.back-btn {
+.settings-modal-body .settings-sub {
+  margin: 0 0 16px;
+}
+
+.settings-modal .settings-row {
+  padding: 16px 18px;
+}
+
+.close-btn {
+  width: 34px;
+  height: 34px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: var(--graphite);
-  font-size: 12.5px;
-  font-weight: 500;
-  padding: 6px 10px;
-  margin-left: -10px;
+  justify-content: center;
   border-radius: var(--r-sm);
-  transition: color 0.12s ease, background 0.12s ease;
+  color: var(--graphite);
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
-.back-btn svg {
-  transform: rotate(90deg);
-}
-
-.back-btn:hover {
-  color: var(--blueprint);
-  background: var(--blueprint-soft);
-}
-
-.settings-head {
-  margin: 22px 0 26px;
+.close-btn:hover {
+  background: var(--panel-2);
+  color: var(--ink);
 }
 
 .settings-title {
@@ -1149,7 +1255,9 @@ textarea {
   align-items: center;
   gap: 8px;
   color: var(--faint);
-  margin: 26px 0 0;
+  margin: 0;
+  padding: 14px 22px;
+  border-top: 1px solid var(--line);
   font-size: 10.5px;
 }
 
@@ -1160,8 +1268,8 @@ textarea {
   display: grid;
   place-items: center;
   background: var(--paper);
-  background-image: linear-gradient(rgba(30, 35, 43, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(30, 35, 43, 0.04) 1px, transparent 1px);
+  background-image: linear-gradient(var(--grid-tint) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-tint) 1px, transparent 1px);
   background-size: 36px 36px;
 }
 

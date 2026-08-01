@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import TopBar from './components/TopBar'
 import Sidebar from './components/Sidebar'
 import ChatPane from './components/ChatPane'
-import SettingsPane from './components/SettingsPane'
+import SettingsModal from './components/SettingsModal'
 import SignInScreen from './components/SignInScreen'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
@@ -137,10 +137,37 @@ export default function App() {
   const [activeProjectId, setActiveProjectId] = useState('p1')
   const [activeChatId, setActiveChatId] = useState('c1')
   const [query, setQuery] = useState('')
-  const [view, setView] = useState('chat') // 'chat' | 'settings'
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [signedOut, setSignedOut] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [draftingChatId, setDraftingChatId] = useState(null)
+  const [theme, setTheme] = useState(() => {
+    let stored = null
+    try {
+      stored = window.localStorage.getItem('s2c-theme')
+    } catch {
+      stored = null
+    }
+    const initial =
+      stored === 'dark' || stored === 'light'
+        ? stored
+        : window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark'
+          : 'light'
+    document.documentElement.setAttribute('data-theme', initial)
+    return initial
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    try {
+      window.localStorage.setItem('s2c-theme', theme)
+    } catch {
+      /* storage unavailable */
+    }
+  }, [theme])
+
+  const closeSettings = useCallback(() => setSettingsOpen(false), [])
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? projects[0]
   const activeChat = activeProject.chats.find((c) => c.id === activeChatId) ?? activeProject.chats[0]
@@ -190,13 +217,11 @@ export default function App() {
     )
     setActiveChatId(chat.id)
     setQuery('')
-    setView('chat')
   }
 
   function selectChat(id) {
     setActiveChatId(id)
     setQuery('')
-    setView('chat')
     setSidebarOpen(false)
   }
 
@@ -216,13 +241,16 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <>
+      <div className="app-shell" inert={settingsOpen ? '' : undefined}>
       <TopBar
         query={query}
         onQuery={setQuery}
-        onOpenSettings={() => setView('settings')}
+        onOpenSettings={() => setSettingsOpen(true)}
         onLogout={handleLogout}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        theme={theme}
+        onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
       />
 
       <div className="main-row">
@@ -241,17 +269,16 @@ export default function App() {
         />
 
         <main className="pane">
-          {view === 'settings' ? (
-            <SettingsPane onBack={() => setView('chat')} />
-          ) : (
-            <ChatPane
-              chat={activeChat}
-              drafting={draftingChatId === activeChatId}
-              onSend={sendMessage}
-            />
-          )}
+          <ChatPane
+            chat={activeChat}
+            drafting={draftingChatId === activeChatId}
+            onSend={sendMessage}
+          />
         </main>
       </div>
-    </div>
+      </div>
+
+      {settingsOpen && <SettingsModal theme={theme} onClose={closeSettings} />}
+    </>
   )
 }
