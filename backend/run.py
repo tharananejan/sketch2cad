@@ -53,8 +53,8 @@ def main():
     
     print("[*] Starting Planner Agent API...")
     planner_process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "api:app", "--host", "127.0.0.1", "--port", "8004"],
-        cwd=str(planner_dir),
+        [sys.executable, "-m", "uvicorn", "agents.planner.api:app", "--host", "127.0.0.1", "--port", "8004"],
+        cwd=str(backend_dir),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
