@@ -106,6 +106,36 @@ export const IconClose = ({ size = 16 }) => (
   </svg>
 )
 
+export const IconShare = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <circle cx="18" cy="5.5" r="2.6" />
+    <circle cx="6" cy="12" r="2.6" />
+    <circle cx="18" cy="18.5" r="2.6" />
+    <path d="m8.2 10.9 7.6-4.4M8.2 13.1l7.6 4.4" />
+  </svg>
+)
+
+export const IconUser = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <circle cx="12" cy="8" r="3.6" />
+    <path d="M4.5 20.5a7.5 7.5 0 0 1 15 0" />
+  </svg>
+)
+
+export const IconRuler = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <path d="M3 8.5 8.5 3 21 15.5 15.5 21 3 8.5Z" />
+    <path d="m6.6 7.1 2.1 2.1M9.9 9.8l2.1 2.1M13.2 12.5l2.1 2.1" />
+  </svg>
+)
+
+export const IconDownload = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <path d="M12 3.5V15m0 0 4.2-4.2M12 15l-4.2-4.2" />
+    <path d="M4.5 17v2.5a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1V17" />
+  </svg>
+)
+
 export const IconSun = ({ size = 17 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
     <circle cx="12" cy="12" r="4.2" />

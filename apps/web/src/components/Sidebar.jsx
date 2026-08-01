@@ -8,9 +8,10 @@ import {
   IconSettings,
   IconLogout,
   IconDots,
+  IconShare,
 } from './icons'
 
-function RowMenu({ onRename, onDelete, label }) {
+function RowMenu({ onRename, onShare, onDelete, label }) {
   const [open, setOpen] = useState(false)
   const [armed, setArmed] = useState(false)
   const [up, setUp] = useState(false)
@@ -78,6 +79,17 @@ function RowMenu({ onRename, onDelete, label }) {
           <button
             type="button"
             role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onShare()
+            }}
+          >
+            <IconShare size={14} />
+            Share
+          </button>
+          <button
+            type="button"
+            role="menuitem"
             className={`danger ${armed ? 'armed' : ''}`}
             onClick={() => {
               if (armed) {
@@ -107,14 +119,17 @@ export default function Sidebar({
   query,
   onQuery,
   totalChats,
+  profile,
   onSelectProject,
   onSelectChat,
   onNewChat,
   onNewProject,
   onRenameProject,
   onDeleteProject,
+  onShareProject,
   onRenameChat,
   onDeleteChat,
+  onShareChat,
   onOpenSettings,
   onLogout,
   open,
@@ -194,6 +209,15 @@ export default function Sidebar({
     onExpand()
   }
 
+  const initials =
+    (profile.name || '?')
+      .trim()
+      .split(/\s+/)
+      .map((w) => w[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() || '?'
+
   if (collapsed) {
     return (
       <aside className="sidebar rail" aria-label="Project rail">
@@ -222,7 +246,7 @@ export default function Sidebar({
         </div>
         <div className="rail-bottom">
           <button type="button" className="rail-avatar" onClick={onExpand} aria-label="Open sidebar" title="Open sidebar">
-            <span className="avatar">AR</span>
+            <span className="avatar">{initials}</span>
           </button>
         </div>
       </aside>
@@ -295,6 +319,7 @@ export default function Sidebar({
                     <RowMenu
                       label={p.name}
                       onRename={() => startRename('project', p.id, p.name)}
+                      onShare={() => onShareProject(p.id, p.name)}
                       onDelete={() => onDeleteProject(p.id)}
                     />
                   </div>
@@ -358,6 +383,7 @@ export default function Sidebar({
                       <RowMenu
                         label={c.name}
                         onRename={() => startRename('chat', c.id, c.name)}
+                        onShare={() => onShareChat(c.id, c.name)}
                         onDelete={() => onDeleteChat(c.id)}
                       />
                     </div>
@@ -394,20 +420,20 @@ export default function Sidebar({
               aria-label="Account menu"
               onClick={() => setMenuOpen((v) => !v)}
             >
-              <span className="avatar">AR</span>
+              <span className="avatar">{initials}</span>
               <span className="profile-id">
-                <span className="profile-name-sm">Ari R.</span>
-                <span className="profile-mail mono">ari@studio.local</span>
+                <span className="profile-name-sm">{profile.name}</span>
+                <span className="profile-mail mono">{profile.email}</span>
               </span>
               <IconChevron className={menuVisible ? 'chev open' : 'chev'} />
             </button>
 
             <div className={`profile-menu ${menuVisible ? 'show' : ''}`} role="menu" aria-label="Account">
               <div className="profile-head" role="presentation">
-                <span className="avatar avatar-lg">AR</span>
+                <span className="avatar avatar-lg">{initials}</span>
                 <div>
-                  <p className="profile-name">Ari R.</p>
-                  <p className="profile-mail mono">ari@studio.local</p>
+                  <p className="profile-name">{profile.name}</p>
+                  <p className="profile-mail mono">{profile.email}</p>
                 </div>
               </div>
               <div className="menu-rule" />
