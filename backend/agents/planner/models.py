@@ -52,7 +52,7 @@ class PlanStep(BaseModel):
     step_id: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1, max_length=2_000)
-    category: Literal["planning", "sketch", "feature", "boolean", "assembly", "validation", "finish"]
+    category: Literal["primitive", "boolean", "transform", "planning"]
     depends_on: list[int] = Field(default_factory=list)
 
 
