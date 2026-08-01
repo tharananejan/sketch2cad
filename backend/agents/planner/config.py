@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
 from .errors import PlannerConfigurationError
 
@@ -33,7 +33,7 @@ class PlannerSettings:
     def from_environment(cls) -> "PlannerSettings":
         """Build planner settings from environment variables."""
 
-        load_dotenv(Path(__file__).with_name(".env"))
+        load_dotenv(find_dotenv())
 
         provider_name = os.getenv("PLANNER_PROVIDER", "groq").strip().lower()
         if provider_name not in {"groq", "deepseek"}:
@@ -43,7 +43,7 @@ class PlannerSettings:
             )
 
         prefix = provider_name.upper()
-        api_key = _required_environment_value(f"{prefix}_API_KEY")
+        api_key = _required_environment_value(f"{prefix}_API_KEY_PLANNER")
         model = _required_environment_value(f"{prefix}_MODEL")
         base_url = os.getenv(f"{prefix}_BASE_URL", _default_base_url(provider_name)).strip()
         timeout_seconds = _positive_float("PLANNER_TIMEOUT_SECONDS", "30")

@@ -54,7 +54,7 @@ async def evaluate_complexity(request: SupervisorRequest, settings: Settings = N
         )
 
     if not settings.GROQ_API_KEY:
-        logger.warning("GROQ_API_KEY is not set. Falling back to complex path.")
+        logger.warning("GROQ_API_KEY_SUPERVISOR is not set. Falling back to complex path.")
         return SupervisorResponse(
             routing_path="complex",
             original_instruction=request.instruction

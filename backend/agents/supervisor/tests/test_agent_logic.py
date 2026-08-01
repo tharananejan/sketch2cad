@@ -15,9 +15,9 @@ from deps import Settings, get_settings
 
 @pytest.fixture(autouse=True)
 def mock_groq_if_no_key(monkeypatch):
-    """Fallback mock for AsyncGroq when no real GROQ_API_KEY is provided in the environment."""
-    if not os.getenv("GROQ_API_KEY"):
-        monkeypatch.setenv("GROQ_API_KEY", "mock_key_for_testing")
+    """Fallback mock for AsyncGroq when no real GROQ_API_KEY_SUPERVISOR is provided in the environment."""
+    if not os.getenv("GROQ_API_KEY_SUPERVISOR"):
+        monkeypatch.setenv("GROQ_API_KEY_SUPERVISOR", "mock_key_for_testing")
 
         class MockChoice:
             def __init__(self, content):

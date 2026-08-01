@@ -33,7 +33,7 @@ def phased_response(phases: list[dict[str, object]]) -> str:
     return json.dumps({"status": "planned", "phases": phases})
 
 
-def plan_step(step_id: int, *, depends_on: list[int] | None = None, category: str = "feature") -> dict[str, object]:
+def plan_step(step_id: int, *, depends_on: list[int] | None = None, category: str = "primitive") -> dict[str, object]:
     return {
         "step_id": step_id,
         "title": f"Modeling operation {step_id}",
@@ -104,14 +104,14 @@ def test_valid_planning_returns_strict_complex_plan() -> None:
                         "step_id": 1,
                         "title": "Establish base profile",
                         "description": "Create the rectangular base profile using the requested footprint dimensions.",
-                        "category": "sketch",
+                        "category": "primitive",
                         "depends_on": [],
                     },
                     {
                         "step_id": 2,
                         "title": "Form mounting features",
                         "description": "Add the mounting bosses at the specified locations on the completed base.",
-                        "category": "feature",
+                        "category": "primitive",
                         "depends_on": [1],
                     },
                 ]
@@ -123,14 +123,14 @@ def test_valid_planning_returns_strict_complex_plan() -> None:
                         "step_id": 1,
                         "title": "Establish base profile",
                         "description": "Create the rectangular base profile using the requested footprint dimensions.",
-                        "category": "sketch",
+                        "category": "primitive",
                         "depends_on": [],
                     },
                     {
                         "step_id": 2,
                         "title": "Form mounting features",
                         "description": "Add the mounting bosses at the specified locations on the completed base.",
-                        "category": "feature",
+                        "category": "primitive",
                         "depends_on": [1],
                     },
                 ]
@@ -194,516 +194,6 @@ def test_unsupported_request_returns_structured_error() -> None:
     assert captured_error.value.code == "unsupported_request"
 
 
-def test_coffee_mug_request_returns_mug_specific_parameter_questions() -> None:
-    """Mug parameters with defaults (wall_thickness, handle_clearance) are not asked."""
-    service = PlannerService(
-        FakeProvider(
-            needs_parameters_response(
-                [
-                    parameter_question("mug_height", "What height should the mug be?", "The mug body height defines the main vessel volume."),
-                    parameter_question(
-                        "outer_diameter",
-                        "What outside diameter should the mug have?",
-                        "The outside diameter defines the cylindrical body footprint.",
-                    ),
-                ]
-            )
-        )
-    )
-
-    response = service.plan(PlannerRequest(request="Design a coffee mug"))
-
-    assert response.status == "needs_parameters"
-    # wall_thickness (3mm) and handle_clearance (30mm) have defaults; not asked
-    assert {question.parameter_id for question in response.questions} == {
-        "mug_height",
-        "outer_diameter",
-    }
-
-
-def test_cube_request_returns_cube_specific_dimension_questions() -> None:
-    service = PlannerService(
-        FakeProvider(
-            needs_parameters_response(
-                [
-                    parameter_question("side_length", "What side length should the cube have?", "A cube requires one equal side length."),
-                ]
-            )
-        )
-    )
-
-    response = service.plan(PlannerRequest(request="Generate a cube"))
-
-    assert response.status == "needs_parameters"
-    assert [question.parameter_id for question in response.questions] == ["side_length"]
-
-
-def test_phone_holder_request_returns_only_non_default_questions() -> None:
-    """Phone holder parameters with industry-standard defaults are not asked."""
-    service = PlannerService(
-        FakeProvider(
-            needs_parameters_response(
-                [
-                    parameter_question("phone_width", "What phone width should the holder fit?", "The slot width must match the phone."),
-                    parameter_question(
-                        "phone_thickness",
-                        "What phone thickness should the slot accept?",
-                        "The slot gap must fit the phone thickness.",
-                    ),
-                ]
-            )
-        )
-    )
-
-    response = service.plan(PlannerRequest(request="Generate a phone holder"))
-
-    assert response.status == "needs_parameters"
-    # slot_depth, front_lip_height, charging_cable_clearance have industry-standard
-    # defaults and are not asked. holder_angle defaults to 60 degrees.
-    assert {question.parameter_id for question in response.questions} == {
-        "phone_width",
-        "phone_thickness",
-    }
-
-
-def test_water_bottle_request_returns_only_non_default_questions() -> None:
-    """Bottle parameters with industry-standard defaults (neck_diameter, neck_height, wall_thickness) are not asked."""
-    service = PlannerService(
-        FakeProvider(
-            needs_parameters_response(
-                [
-                    parameter_question("bottle_height", "What overall height should the bottle have?", "The bottle height is a key dimension for shape and capacity calculations."),
-                    parameter_question("body_diameter", "What body diameter should the bottle have?", "The main body diameter defines the bottle's main shape and volume."),
-                    parameter_question("target_capacity", "What target capacity (volume) should the bottle hold?", "The target capacity is required to calculate the internal volume and maintain it.", value_type="number"),
-                ]
-            )
-        )
-    )
-
-    response = service.plan(PlannerRequest(request="Design a water bottle"))
-
-    assert response.status == "needs_parameters"
-    # neck_diameter (25mm), neck_height (20mm), wall_thickness (2mm) have defaults; not asked
-    assert {question.parameter_id for question in response.questions} == {
-        "bottle_height",
-        "body_diameter",
-        "target_capacity",
-    }
-
-
-def test_water_bottle_fallback_when_audit_says_ready() -> None:
-    """When the audit says 'ready', fallback should still catch bottle and ask only non-default questions."""
-    provider = FakeProvider(
-        [
-            ready_response(),
-            planned_response(
-                [
-                    {
-                        "step_id": 1,
-                        "title": "Create bottle",
-                        "description": "Create a bottle without collecting parameters.",
-                        "depends_on": [],
-                    }
-                ]
-            ),
-        ]
-    )
-    service = PlannerService(provider)
-
-    response = service.plan(PlannerRequest(request="Design a water bottle"))
-
-    assert response.status == "needs_parameters"
-    assert {question.parameter_id for question in response.questions} == {
-        "bottle_height",
-        "body_diameter",
-        "target_capacity",
-    }
-    # Fallback runs before audit, so audit is never called
-    assert len(provider.calls) == 0
-
-
-def test_enclosure_request_returns_enclosure_specific_questions() -> None:
-    """Enclosure parameters with defaults (wall_thickness, corner_radius) are not asked."""
-    service = PlannerService(
-        FakeProvider(
-            needs_parameters_response(
-                [
-                    parameter_question(
-                        "enclosure_width", "What width should the enclosure have?", "The enclosure width defines the main horizontal dimension."
-                    ),
-                    parameter_question(
-                        "enclosure_height", "What height should the enclosure have?", "The enclosure height defines the vertical dimension."
-                    ),
-                    parameter_question(
-                        "enclosure_depth", "What depth should the enclosure have?", "The enclosure depth defines the second horizontal dimension."
-                    ),
-                ]
-            )
-        )
-    )
-
-    response = service.plan(PlannerRequest(request="Design an electronics enclosure"))
-
-    assert response.status == "needs_parameters"
-    # wall_thickness (2mm) and corner_radius (3mm) have defaults; not asked
-    assert {question.parameter_id for question in response.questions} == {
-        "enclosure_width",
-        "enclosure_height",
-        "enclosure_depth",
-    }
-
-
-def test_housing_request_also_returns_enclosure_questions() -> None:
-    """Housing (enclosure) parameters with defaults are not asked."""
-    service = PlannerService(
-        FakeProvider(
-            needs_parameters_response(
-                [
-                    parameter_question(
-                        "enclosure_width", "What width should the enclosure have?", "The enclosure width defines the main horizontal dimension."
-                    ),
-                    parameter_question(
-                        "enclosure_height", "What height should the enclosure have?", "The enclosure height defines the vertical dimension."
-                    ),
-                    parameter_question(
-                        "enclosure_depth", "What depth should the enclosure have?", "The enclosure depth defines the second horizontal dimension."
-                    ),
-                ]
-            )
-        )
-    )
-
-    response = service.plan(PlannerRequest(request="Design a motor housing"))
-
-    assert response.status == "needs_parameters"
-    # wall_thickness (2mm) and corner_radius (3mm) have defaults; not asked
-    assert {question.parameter_id for question in response.questions} == {
-        "enclosure_width",
-        "enclosure_height",
-        "enclosure_depth",
-    }
-
-
-def test_bracket_request_returns_bracket_specific_questions() -> None:
-    """Bracket parameters with defaults (bracket_thickness, mounting_hole_diameter) are not asked."""
-    service = PlannerService(
-        FakeProvider(
-            needs_parameters_response(
-                [
-                    parameter_question(
-                        "bracket_width", "What width should the bracket have?", "The bracket width defines the primary horizontal span."
-                    ),
-                    parameter_question(
-                        "bracket_height", "What height should the bracket have?", "The bracket height defines the vertical leg length."
-                    ),
-                    parameter_question(
-                        "hole_spacing", "What hole spacing should the bracket use?", "Spacing between mounting holes determines compatibility."
-                    ),
-                ]
-            )
-        )
-    )
-
-    response = service.plan(PlannerRequest(request="Design an L-bracket"))
-
-    assert response.status == "needs_parameters"
-    # bracket_thickness (5mm) and mounting_hole_diameter (4mm) have defaults; not asked
-    assert {question.parameter_id for question in response.questions} == {
-        "bracket_width",
-        "bracket_height",
-        "hole_spacing",
-    }
-
-
-def test_box_request_returns_box_specific_questions() -> None:
-    """Box parameters with defaults (wall_thickness) are not asked."""
-    service = PlannerService(
-        FakeProvider(
-            needs_parameters_response(
-                [
-                    parameter_question(
-                        "box_width", "What interior width should the box have?", "The box width defines the primary horizontal dimension."
-                    ),
-                    parameter_question(
-                        "box_depth", "What interior depth should the box have?", "The box depth defines the second horizontal dimension."
-                    ),
-                    parameter_question(
-                        "box_height", "What interior height should the box have?", "The box height defines the vertical dimension and usable volume."
-                    ),
-                ]
-            )
-        )
-    )
-
-    response = service.plan(PlannerRequest(request="Design a storage box"))
-
-    assert response.status == "needs_parameters"
-    # wall_thickness (2mm) has a default; not asked
-    assert {question.parameter_id for question in response.questions} == {
-        "box_width",
-        "box_depth",
-        "box_height",
-    }
-
-
-def test_box_with_some_dimensions_asks_only_missing() -> None:
-    """Box with some dimensions answered; wall_thickness has a default so only box_height is asked."""
-    service = PlannerService(
-        FakeProvider(
-            needs_parameters_response(
-                [
-                    parameter_question(
-                        "box_height", "What interior height should the box have?", "The box height defines the vertical dimension and usable volume."
-                    ),
-                ]
-            )
-        )
-    )
-
-    response = service.plan(
-        PlannerRequest(
-            request="Design a storage box with 200 mm width and 150 mm depth",
-            context={
-                "parameter_answers": {
-                    "box_width": {"value": 200, "unit": "mm"},
-                    "box_depth": {"value": 150, "unit": "mm"},
-                }
-            },
-        )
-    )
-
-    assert response.status == "needs_parameters"
-    # wall_thickness (2mm) has a default; not asked
-    assert [question.parameter_id for question in response.questions] == ["box_height"]
-
-
-def test_water_bottle_with_capacity_request_does_not_ask_capacity() -> None:
-    """Bottle with capacity specified; defaulted params (neck_diameter, neck_height, wall_thickness) not asked."""
-    service = PlannerService(
-        FakeProvider(
-            needs_parameters_response(
-                [
-                    parameter_question("bottle_height", "What overall height should the bottle have?", "The bottle height is a key dimension for shape and capacity calculations."),
-                    parameter_question("body_diameter", "What body diameter should the bottle have?", "The main body diameter defines the bottle's main shape and volume."),
-                ]
-            )
-        )
-    )
-
-    response = service.plan(PlannerRequest(request="Design a water bottle with 500ml capacity"))
-
-    assert response.status == "needs_parameters"
-    # target_capacity already in request, neck_diameter/neck_height/wall_thickness have defaults
-    assert {question.parameter_id for question in response.questions} == {
-        "bottle_height",
-        "body_diameter",
-    }
-
-
-def test_answered_parameter_answers_are_sent_to_provider_for_planning() -> None:
-    provider = FakeProvider(
-        [
-            ready_response(),
-            planned_response(
-                [
-                    {
-                        "step_id": 1,
-                        "title": "Create cube volume",
-                        "description": "Create an equal-sided cube using the answered side length and selected unit.",
-                        "category": "feature",
-                        "depends_on": [],
-                    }
-                ]
-            ),
-        ]
-    )
-    service = PlannerService(provider)
-
-    response = service.plan(
-        PlannerRequest(
-            request="Generate a cube",
-            context={"parameter_answers": {"side_length": {"value": 40, "unit": "mm"}}},
-        )
-    )
-    user_prompt = json.loads(provider.calls[0][1])
-
-    assert response.status == "planned"
-    assert len(provider.calls) == 2
-    assert user_prompt["context"]["parameter_answers"] == {"side_length": {"value": 40.0, "unit": "mm"}}
-
-
-def test_pending_unanswered_question_prevents_planning_without_provider_call() -> None:
-    provider = FakeProvider(
-        planned_response(
-            [
-                {
-                    "step_id": 1,
-                    "title": "Create cube",
-                    "description": "Create the cube even though the side length is missing.",
-                    "depends_on": [],
-                }
-            ]
-        )
-    )
-    service = PlannerService(provider)
-
-    response = service.plan(
-        PlannerRequest(
-            request="Generate a cube",
-            context={
-                "pending_questions": [
-                    parameter_question(
-                        "side_length",
-                        "What side length should the cube have?",
-                        "A cube requires one equal side length.",
-                    )
-                ]
-            },
-        )
-    )
-
-    assert response.status == "needs_parameters"
-    assert [question.parameter_id for question in response.questions] == ["side_length"]
-    assert provider.calls == []
-
-
-def test_audit_stage_rejects_provider_plan_steps() -> None:
-    service = PlannerService(
-        FakeProvider(
-            planned_response(
-                [
-                    {
-                        "step_id": 1,
-                        "title": "Create part body",
-                        "description": "Create a part body before asking for missing dimensions.",
-                        "depends_on": [],
-                    }
-                ]
-            )
-        )
-    )
-
-    with pytest.raises(InvalidModelResponseError):
-        # Use a request with 3+ measurements so fallback is empty, letting the audit run
-        service.plan(PlannerRequest(request="Design a 100 mm by 80 mm by 60 mm object"))
-
-
-def test_ready_audit_for_vague_mug_still_returns_questions_without_planning() -> None:
-    """Vague mug request returns only non-default questions."""
-    provider = FakeProvider(
-        [
-            ready_response(),
-            planned_response(
-                [
-                    {
-                        "step_id": 1,
-                        "title": "Create mug body",
-                        "description": "Create a mug before collecting missing dimensions.",
-                        "category": "feature",
-                        "depends_on": [],
-                    }
-                ]
-            ),
-        ]
-    )
-    service = PlannerService(provider)
-
-    response = service.plan(PlannerRequest(request="Design a coffee mug"))
-
-    assert response.status == "needs_parameters"
-    # wall_thickness (3mm) and handle_clearance (30mm) have defaults; not asked
-    assert {question.parameter_id for question in response.questions} == {
-        "mug_height",
-        "outer_diameter",
-    }
-    # Fallback runs before audit, so the provider is never called
-    assert len(provider.calls) == 0
-
-
-def test_ready_audit_for_complete_mug_dimensions_allows_planning() -> None:
-    """Mug with all non-default dimensions specified goes through to audit."""
-    provider = FakeProvider(
-        [
-            ready_response(),
-            planned_response(
-                [
-                    {
-                        "step_id": 1,
-                        "title": "Create mug",
-                        "description": "Create a mug with all required user-specified dimensions.",
-                        "category": "feature",
-                        "depends_on": [],
-                    }
-                ]
-            ),
-        ]
-    )
-    service = PlannerService(provider)
-
-    response = service.plan(
-        PlannerRequest(request="Design a coffee mug with 95 mm height and 80 mm outside diameter")
-    )
-
-    assert response.status == "planned"
-    # wall_thickness (3mm) and handle_clearance (30mm) have defaults; not asked
-    # mug_height (95mm) and outer_diameter (80mm) are already in parameter_answers
-    # No deterministic questions; audit says ready; planning proceeds
-    assert len(provider.calls) == 2  # Audit + planning
-
-
-def test_ready_audit_for_unitless_dimension_returns_correction_without_planning() -> None:
-    provider = FakeProvider(
-        [
-            ready_response(),
-            planned_response(
-                [
-                    {
-                        "step_id": 1,
-                        "title": "Create cube",
-                        "description": "Create a cube with a unitless side length.",
-                        "depends_on": [],
-                    }
-                ]
-            ),
-        ]
-    )
-    service = PlannerService(provider)
-
-    response = service.plan(PlannerRequest(request="Generate a cube with side length 40"))
-
-    assert response.status == "needs_parameters"
-    assert response.questions[0].parameter_id == "side_length"
-    assert response.questions[0].issue == "Dimension is missing a unit."
-    assert response.questions[0].current_value == 40
-    # Fallback runs before audit, so the provider is never called
-    assert len(provider.calls) == 0
-
-
-def test_ready_audit_for_complete_cube_dimension_allows_planning() -> None:
-    provider = FakeProvider(
-        [
-            ready_response(),
-            planned_response(
-                [
-                    {
-                        "step_id": 1,
-                        "title": "Create cube",
-                        "description": "Create the cube using the supplied 40 mm side length.",
-                        "category": "feature",
-                        "depends_on": [],
-                    }
-                ]
-            ),
-        ]
-    )
-    service = PlannerService(provider)
-
-    response = service.plan(PlannerRequest(request="Generate a cube with side length 40 mm"))
-
-    assert response.status == "planned"
-    assert len(provider.calls) == 2
-
-
 def test_generic_design_with_partial_dimensions_passes_to_audit() -> None:
     """Non-common designs with partial dimensions are handled by the audit LLM, not envelope questions."""
     provider = FakeProvider(
@@ -715,7 +205,7 @@ def test_generic_design_with_partial_dimensions_passes_to_audit() -> None:
                         "step_id": 1,
                         "title": "Create part",
                         "description": "Create a part from one supplied dimension.",
-                        "category": "sketch",
+                        "category": "primitive",
                         "depends_on": [],
                     }
                 ]
@@ -768,7 +258,7 @@ def test_valid_pending_dimension_answer_allows_audit_and_planning() -> None:
                         "step_id": 1,
                         "title": "Create cube volume",
                         "description": "Create the cube using the selected centimeter side length.",
-                        "category": "feature",
+                        "category": "primitive",
                         "depends_on": [],
                     }
                 ]
@@ -817,7 +307,7 @@ def test_audit_does_not_repeat_already_valid_parameter_questions() -> None:
                         "step_id": 1,
                         "title": "Create cube volume",
                         "description": "Create the cube using the confirmed 40 mm side length.",
-                        "category": "feature",
+                        "category": "primitive",
                         "depends_on": [],
                     }
                 ]
@@ -1039,7 +529,7 @@ def test_large_request_preserves_ordered_dependencies() -> None:
             "step_id": step_id,
             "title": f"Model assembly feature {step_id}",
             "description": f"Create the required engineering feature number {step_id} for the assembly.",
-            "category": "feature",
+            "category": "primitive",
             "depends_on": [] if step_id == 1 else [step_id - 1],
         }
         for step_id in range(1, 31)

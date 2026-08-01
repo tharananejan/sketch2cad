@@ -57,7 +57,7 @@ Simple part shape:
       "step_id": 1,
       "title": "Establish enclosure envelope",
       "description": "Create the outer enclosure volume using the required width, height, depth, and wall-thickness intent.",
-      "category": "feature",
+      "category": "primitive",
       "depends_on": []
     }
   ],
@@ -77,7 +77,7 @@ Complex design shape (steps are flattened into `steps` for downstream consumers)
       "step_id": 1,
       "title": "Establish enclosure envelope",
       "description": "Create the outer enclosure volume.",
-      "category": "feature",
+      "category": "primitive",
       "depends_on": []
     }
   ],
@@ -92,7 +92,7 @@ Complex design shape (steps are flattened into `steps` for downstream consumers)
           "step_id": 1,
           "title": "Establish enclosure envelope",
           "description": "Create the outer enclosure volume.",
-          "category": "feature",
+          "category": "primitive",
           "depends_on": []
         }
       ]

@@ -66,8 +66,8 @@ def generate_cad_code(step: str, settings: Settings = None) -> Tuple[Union[List[
     # 3. Query Groq API
     if not settings.GROQ_API_KEY:
         error_code = (
-            "# [ERROR] GROQ_API_KEY is not set.\n"
-            "# Please set the GROQ_API_KEY environment variable.\n"
+            "# [ERROR] GROQ_API_KEY_CODE_GENERATOR is not set.\n"
+            "# Please set the GROQ_API_KEY_CODE_GENERATOR environment variable.\n"
             f"# Instruction was: {step}"
         )
         return error_code, sources

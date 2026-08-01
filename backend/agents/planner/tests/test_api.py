@@ -36,7 +36,7 @@ def test_endpoint_returns_only_the_plan_response_shape() -> None:
                         "step_id": 1,
                         "title": "Establish base geometry",
                         "description": "Create the base geometry for the requested part.",
-                        "category": "sketch",
+                        "category": "primitive",
                         "depends_on": [],
                     }
                 ],
@@ -76,7 +76,7 @@ def test_endpoint_returns_hierarchical_phases_response_shape() -> None:
                                 "step_id": 1,
                                 "title": "Establish envelope",
                                 "description": "Create the outer envelope volume.",
-                                "category": "feature",
+                                "category": "primitive",
                                 "depends_on": [],
                             }
                         ],
@@ -136,41 +136,6 @@ def test_endpoint_returns_needs_parameters_response_shape() -> None:
     assert response.json()["questions"][0]["unit_options"] == ["mm", "cm", "inch"]
 
 
-def test_endpoint_does_not_plan_vague_prompt_after_ready_audit() -> None:
-    response_texts = [
-        json.dumps({"status": "ready", "questions": []}),
-        json.dumps(
-            {
-                "status": "planned",
-                "steps": [
-                    {
-                        "step_id": 1,
-                        "title": "Create mug",
-                        "description": "Create a mug before collecting dimensions.",
-                        "category": "feature",
-                        "depends_on": [],
-                    }
-                ],
-            }
-        ),
-    ]
-    app.dependency_overrides[get_planner_service] = lambda: PlannerService(FakeProvider(response_texts))
-
-    try:
-        client = TestClient(app)
-        response = client.post("/planner", json={"request": "Design a coffee mug"})
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 200
-    assert response.json()["status"] == "needs_parameters"
-    # wall_thickness (3mm) and handle_clearance (30mm) have defaults; not asked
-    assert {question["parameter_id"] for question in response.json()["questions"]} == {
-        "mug_height",
-        "outer_diameter",
-    }
-
-
 def test_endpoint_returns_json_error_envelope_for_empty_request() -> None:
     app.dependency_overrides[get_planner_service] = lambda: PlannerService(FakeProvider("{}"))
 
@@ -191,7 +156,7 @@ def test_endpoint_returns_json_error_envelope_for_missing_provider_config(
     get_planner_service.cache_clear()
     monkeypatch.setattr("backend.agents.planner.config.load_dotenv", lambda *_args, **_kwargs: None)
     monkeypatch.delenv("PLANNER_PROVIDER", raising=False)
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY_PLANNER", raising=False)
     monkeypatch.delenv("GROQ_MODEL", raising=False)
 
     try:
@@ -204,7 +169,7 @@ def test_endpoint_returns_json_error_envelope_for_missing_provider_config(
     assert response.json() == {
         "error": {
             "code": "planner_configuration_error",
-            "message": "GROQ_API_KEY must be configured.",
-            "details": {"setting": "GROQ_API_KEY"},
+            "message": "GROQ_API_KEY_PLANNER must be configured.",
+            "details": {"setting": "GROQ_API_KEY_PLANNER"},
         }
     }

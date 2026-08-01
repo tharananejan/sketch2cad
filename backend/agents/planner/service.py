@@ -41,64 +41,28 @@ _FORBIDDEN_OUTPUT_PATTERNS = (
     re.compile(r"\bdef\s+\w+", re.IGNORECASE),
     re.compile(r"\bhttps?://", re.IGNORECASE),
 )
-_LINEAR_UNIT_PATTERN = re.compile(
-    r"\b\d+(?:\.\d+)?\s*(?:mm|millimeter|millimeters|cm|centimeter|centimeters|in|inch|inches)\b",
-    re.IGNORECASE,
-)
-_VOLUME_UNIT_PATTERN = re.compile(
-    r"\b\d+(?:\.\d+)?\s*(?:ml|milliliter|milliliters|l|liter|liters|oz|ounce|ounces)\b",
-    re.IGNORECASE,
-)
-_NUMBER_PATTERN = re.compile(r"\b\d+(?:\.\d+)?\b", re.IGNORECASE)
-_DIMENSION_KEYWORDS = (
-    "height",
-    "tall",
-    "width",
-    "wide",
-    "depth",
-    "deep",
-    "length",
-    "long",
-    "diameter",
-    "radius",
-    "thickness",
-    "clearance",
-    "slot",
-    "lip",
-    "side",
-)
-_ANGLE_KEYWORDS = ("angle", "tilt", "incline", "lean", "degrees", "degree")
+
 _SUPPORTED_UNITS = {"mm", "cm", "inch"}
 
-
-_DESIGN_DEFAULTS: dict[str, dict[str, Any]] = {
-    "mug": {
-        "wall_thickness": {"value": 3, "unit": "mm"},
-        "handle_clearance": {"value": 30, "unit": "mm"},
-    },
-    "phone_holder": {
-        "slot_depth": {"value": 15, "unit": "mm"},
-        "front_lip_height": {"value": 5, "unit": "mm"},
-        "charging_cable_clearance": {"value": 10, "unit": "mm"},
-        "holder_angle": 60,
-    },
-    "bottle": {
-        "neck_diameter": {"value": 25, "unit": "mm"},
-        "neck_height": {"value": 20, "unit": "mm"},
-        "wall_thickness": {"value": 2, "unit": "mm"},
-    },
-    "enclosure": {
-        "wall_thickness": {"value": 2, "unit": "mm"},
-        "corner_radius": {"value": 3, "unit": "mm"},
-    },
-    "bracket": {
-        "bracket_thickness": {"value": 5, "unit": "mm"},
-        "mounting_hole_diameter": {"value": 4, "unit": "mm"},
-    },
-    "box": {
-        "wall_thickness": {"value": 2, "unit": "mm"},
-    },
+# Keyword sets used to detect semantically equivalent parameter IDs across rounds.
+# If the LLM returns "outer_diameter" when "body_diameter" is already answered,
+# the keyword overlap ("diameter") lets us recognise them as the same concept.
+_DIMENSION_KEYWORDS = {
+    "diameter", "radius", "height", "width", "length", "depth",
+    "thickness", "clearance", "angle", "capacity", "volume",
 }
+
+# Parameter IDs matching these patterns are derivable from other parameters and
+# should not be asked about. Each entry maps a derivable pattern to a tuple of
+# source parameters that must be present for it to be auto-derived.
+_DERIVABLE_RULES: list[tuple[set[str], tuple[str, ...]]] = [
+    # inner_diameter = outer_diameter - 2 * wall_thickness
+    ({"inner", "diameter"}, ("diameter", "wall")),
+    ({"interior", "diameter"}, ("diameter", "wall")),
+    ({"inner", "radius"}, ("radius", "wall")),
+    # body_height = overall_height - neck_height
+    ({"body", "height"}, ("height", "neck")),
+]
 
 
 class PlannerService:
@@ -127,22 +91,9 @@ class PlannerService:
                 questions=pending_questions,
             )
 
-        # Stage 2: Deterministic parameter questions (reliable, always consistent)
-        # Runs BEFORE the audit so known designs always get the right questions.
-        deterministic_questions = self._deterministic_parameter_questions(planner_request)
-        if deterministic_questions:
-            unresolved = self._questions_requiring_answers(
-                deterministic_questions,
-                planner_request.context.parameter_answers,
-            )
-            if unresolved:
-                return NeedsParametersResponse(
-                    plan_id=plan_id,
-                    complexity="complex",
-                    questions=unresolved,
-                )
 
-        # Stage 3: Audit LLM for validation and uncovered parameters
+
+        # Stage 2: Audit LLM for validation and uncovered parameters
         user_prompt = self._build_user_prompt(planner_request)
         audit_response = self._provider.generate(
             system_prompt=PLANNER_AUDIT_SYSTEM_PROMPT,
@@ -156,12 +107,22 @@ class PlannerService:
             )
 
         if audit_draft.status == "needs_parameters":
-            unresolved_audit_questions = self._questions_requiring_answers(
+            # Deduplicate questions against already-answered parameter IDs
+            deduped_questions = self._deduplicate_questions(
                 audit_draft.questions,
                 planner_request.context.parameter_answers,
             )
+            # Filter out questions for derivable parameters
+            non_derivable_questions = [
+                q for q in deduped_questions
+                if not self._is_derivable_question(q, planner_request.context.parameter_answers)
+            ]
+            unresolved_audit_questions = self._questions_requiring_answers(
+                non_derivable_questions,
+                planner_request.context.parameter_answers,
+            )
             unresolved_audit_questions = self._keep_explicit_correction_questions(
-                audit_draft.questions,
+                non_derivable_questions,
                 unresolved_audit_questions,
             )
             if not unresolved_audit_questions:
@@ -278,6 +239,78 @@ class PlannerService:
         return unresolved_questions
 
     @staticmethod
+    def _deduplicate_questions(
+        questions: list[ParameterQuestion],
+        parameter_answers: dict[str, Any],
+    ) -> list[ParameterQuestion]:
+        """Drop questions whose parameter_id is a semantic duplicate of an answered key.
+
+        LLMs sometimes generate different snake_case IDs for the same concept across
+        audit rounds (e.g., ``body_diameter`` in round 1 and ``outer_diameter`` in
+        round 2). This method detects overlap via shared dimension keywords and drops
+        the duplicate question when the answered key already covers the concept.
+        """
+
+        if not parameter_answers:
+            return list(questions)
+
+        answered_keyword_sets: dict[str, set[str]] = {
+            key: set(key.split("_")) & _DIMENSION_KEYWORDS
+            for key in parameter_answers
+        }
+
+        unique_questions: list[ParameterQuestion] = []
+        for question in questions:
+            q_keywords = set(question.parameter_id.split("_")) & _DIMENSION_KEYWORDS
+            if not q_keywords:
+                unique_questions.append(question)
+                continue
+
+            # Check if an answered parameter shares the primary dimension keyword
+            is_duplicate = False
+            for answered_id, a_keywords in answered_keyword_sets.items():
+                if answered_id == question.parameter_id:
+                    # Exact match — already handled by _questions_requiring_answers
+                    break
+                if q_keywords & a_keywords:
+                    # Shared keyword (e.g., both contain "diameter") — likely a duplicate.
+                    # Only flag as duplicate if there is overlap in the non-keyword
+                    # qualifier too ("body" vs "neck" should not be merged).
+                    q_qualifiers = set(question.parameter_id.split("_")) - _DIMENSION_KEYWORDS
+                    a_qualifiers = set(answered_id.split("_")) - _DIMENSION_KEYWORDS
+                    # If either has no qualifier, or qualifiers overlap, it's a duplicate
+                    if not q_qualifiers or not a_qualifiers or (q_qualifiers & a_qualifiers):
+                        is_duplicate = True
+                        break
+            if not is_duplicate:
+                unique_questions.append(question)
+
+        return unique_questions
+
+    @staticmethod
+    def _is_derivable_question(
+        question: ParameterQuestion,
+        parameter_answers: dict[str, Any],
+    ) -> bool:
+        """Return True if the question asks for a value derivable from existing answers.
+
+        Uses keyword-based heuristics rather than exact ID matching so the filter
+        works regardless of the LLM's naming choices.
+        """
+
+        q_keywords = set(question.parameter_id.split("_"))
+        all_answer_keywords = set()
+        for key in parameter_answers:
+            all_answer_keywords.update(key.split("_"))
+
+        for derivable_keywords, required_sources in _DERIVABLE_RULES:
+            if derivable_keywords <= q_keywords:
+                # The question matches a derivable pattern — check if sources exist
+                if all(src in all_answer_keywords for src in required_sources):
+                    return True
+        return False
+
+    @staticmethod
     def _answer_issue(question: ParameterQuestion, answer: Any) -> str | None:
         if question.value_type == "dimension":
             dimension = PlannerService._coerce_dimension_answer(answer)
@@ -325,450 +358,6 @@ class PlannerService:
             return DimensionAnswer.model_validate(answer)
         except ValidationError:
             return None
-
-    def _deterministic_parameter_questions(
-        self,
-        planner_request: PlannerRequest,
-    ) -> list[ParameterQuestion]:
-        """Generate deterministic parameter questions for underspecified designs.
-
-        Runs before the audit to ensure known designs (cube, mug, bottle, etc.)
-        always get the right questions regardless of LLM consistency.
-
-        Parameters with industry-standard defaults (wall thickness, handle clearance,
-        etc.) are not asked here; the audit LLM infers them. Generic/unknown designs
-        are passed to the audit LLM for parameter identification.
-        """
-
-        request_text = planner_request.request.lower()
-        answered_parameter_ids = set(planner_request.context.parameter_answers)
-
-        unitless_questions = self._unitless_dimension_questions(request_text)
-        if unitless_questions:
-            return unitless_questions
-
-        common_questions = self._common_design_missing_questions(request_text, answered_parameter_ids)
-        if common_questions:
-            return common_questions
-
-        # No generic envelope questions per Rule 7. The audit LLM handles
-        # non-common designs and infers defaults per Rule 9.
-        return []
-
-    def _unitless_dimension_questions(self, request_text: str) -> list[ParameterQuestion]:
-        questions: list[ParameterQuestion] = []
-        for index, match in enumerate(_NUMBER_PATTERN.finditer(request_text), start=1):
-            number_text = match.group(0)
-            window_start = max(0, match.start() - 35)
-            window_end = min(len(request_text), match.end() + 35)
-            window = request_text[window_start:window_end]
-            if _LINEAR_UNIT_PATTERN.search(window) or "degree" in window:
-                continue
-            if not any(keyword in window for keyword in _DIMENSION_KEYWORDS):
-                continue
-
-            questions.append(
-                self._dimension_question(
-                    self._parameter_id_from_window(window, index),
-                    "This dimension is missing a unit. What corrected value and unit should it use?",
-                    "The planner cannot choose whether a dimension is mm, cm, or inch.",
-                    current_value=float(number_text) if "." in number_text else int(number_text),
-                    issue="Dimension is missing a unit.",
-                )
-            )
-        return questions
-
-    def _common_design_missing_questions(
-        self,
-        request_text: str,
-        answered_parameter_ids: set[str],
-    ) -> list[ParameterQuestion]:
-        if "cube" in request_text:
-            if "side_length" not in answered_parameter_ids and not self._has_linear_measurement(request_text):
-                return [
-                    self._dimension_question(
-                        "side_length",
-                        "What side length should the cube have?",
-                        "A cube requires one equal side length before CAD planning.",
-                    )
-                ]
-            return []
-
-        if "sphere" in request_text or "ball" in request_text:
-            if not ({"sphere_radius", "sphere_diameter"} & answered_parameter_ids) and not self._has_linear_measurement(
-                request_text
-            ):
-                return [
-                    self._dimension_question(
-                        "sphere_diameter",
-                        "What diameter should the sphere have?",
-                        "A sphere requires a radius or diameter before CAD planning.",
-                    )
-                ]
-            return []
-
-        if "cylinder" in request_text:
-            return self._missing_dimension_questions(
-                request_text,
-                answered_parameter_ids,
-                [
-                    (
-                        "cylinder_diameter",
-                        ("diameter", "radius", "wide", "width"),
-                        "What diameter should the cylinder have?",
-                        "The cylinder needs a circular size before CAD planning.",
-                    ),
-                    (
-                        "cylinder_height",
-                        ("height", "tall"),
-                        "What height should the cylinder have?",
-                        "The cylinder needs a height before CAD planning.",
-                    ),
-                ],
-            )
-
-        if "mug" in request_text or "coffee cup" in request_text or "cup" in request_text:
-            return self._missing_dimension_questions(
-                request_text,
-                answered_parameter_ids,
-                [
-                    (
-                        "mug_height",
-                        ("height", "tall"),
-                        "What height should the mug be?",
-                        "The mug body height defines the vessel volume.",
-                    ),
-                    (
-                        "outer_diameter",
-                        ("diameter", "outer", "wide", "width"),
-                        "What outside diameter should the mug have?",
-                        "The outside diameter defines the mug body footprint.",
-                    ),
-                    (
-                        "wall_thickness",
-                        ("wall", "thickness"),
-                        "What wall thickness should the mug have?",
-                        "Wall thickness is required to make the mug hollow and manufacturable.",
-                    ),
-                    (
-                        "handle_clearance",
-                        ("handle clearance", "finger clearance", "handle opening"),
-                        "What handle clearance should the mug provide?",
-                        "Handle clearance controls the functional opening for the user's hand.",
-                    ),
-                ],
-                design_key="mug",
-            )
-
-        if "phone holder" in request_text or ("phone" in request_text and "holder" in request_text):
-            questions = self._missing_dimension_questions(
-                request_text,
-                answered_parameter_ids,
-                [
-                    (
-                        "phone_width",
-                        ("phone width", "width", "wide"),
-                        "What phone width should the holder fit?",
-                        "The slot width must match the phone.",
-                    ),
-                    (
-                        "phone_thickness",
-                        ("phone thickness", "thickness"),
-                        "What phone thickness should the slot accept?",
-                        "The slot gap must fit the phone thickness.",
-                    ),
-                    (
-                        "slot_depth",
-                        ("slot depth", "depth"),
-                        "What slot depth should hold the phone?",
-                        "Slot depth controls how securely the phone sits in the holder.",
-                    ),
-                    (
-                        "front_lip_height",
-                        ("front lip", "lip height", "lip"),
-                        "What front lip height should retain the phone?",
-                        "The front lip prevents the phone from sliding out.",
-                    ),
-                    (
-                        "charging_cable_clearance",
-                        ("charging", "cable", "clearance"),
-                        "What charging-cable clearance should the holder leave?",
-                        "Cable clearance affects the functional cutout under the phone.",
-                    ),
-                ],
-                design_key="phone_holder",
-            )
-            phone_holder_defaults = _DESIGN_DEFAULTS.get("phone_holder", {})
-            holder_angle_default = phone_holder_defaults.get("holder_angle")
-            if "holder_angle" not in answered_parameter_ids and not self._has_number_near_keywords(request_text, _ANGLE_KEYWORDS):
-                if holder_angle_default is None:
-                    questions.append(
-                        ParameterQuestion(
-                            parameter_id="holder_angle",
-                            question="What viewing angle should the holder use?",
-                            value_type="number",
-                            unit="degrees",
-                            options=[],
-                            reason="The support angle sets the phone tilt.",
-                        )
-                    )
-            return questions
-
-        if "bottle" in request_text:
-            questions = self._missing_dimension_questions(
-                request_text,
-                answered_parameter_ids,
-                [
-                    (
-                        "bottle_height",
-                        ("height", "tall"),
-                        "What overall height should the bottle have?",
-                        "The bottle height is a key dimension for shape and capacity calculations.",
-                    ),
-                    (
-                        "body_diameter",
-                        ("body diameter", "diameter", "outer", "wide", "width"),
-                        "What body diameter should the bottle have?",
-                        "The main body diameter defines the bottle's main shape and volume.",
-                    ),
-                    (
-                        "neck_diameter",
-                        ("neck diameter", "neck", "top diameter", "mouth"),
-                        "What neck diameter should the bottle have?",
-                        "The neck diameter is smaller than the body diameter and defines the opening.",
-                    ),
-                    (
-                        "neck_height",
-                        ("neck height",),
-                        "What neck height should the bottle have?",
-                        "The neck height defines the top vertical section before the body transition.",
-                    ),
-                    (
-                        "wall_thickness",
-                        ("wall", "thickness"),
-                        "What wall thickness should the bottle have?",
-                        "Wall thickness is required to calculate the internal cavity and maintain capacity.",
-                    ),
-                ],
-                design_key="bottle",
-            )
-            if "target_capacity" not in answered_parameter_ids and not self._has_volume_measurement(request_text):
-                questions.append(
-                    ParameterQuestion(
-                        parameter_id="target_capacity",
-                        question="What target capacity (volume) should the bottle hold?",
-                        value_type="number",
-                        unit="ml",
-                        options=[],
-                        reason="The target capacity is required to calculate the internal volume and maintain it.",
-                    )
-                )
-            return questions
-
-        if "enclosure" in request_text or "housing" in request_text:
-            return self._missing_dimension_questions(
-                request_text,
-                answered_parameter_ids,
-                [
-                    (
-                        "enclosure_width",
-                        ("width", "wide"),
-                        "What width should the enclosure have?",
-                        "The enclosure width defines the main horizontal dimension.",
-                    ),
-                    (
-                        "enclosure_height",
-                        ("height", "tall"),
-                        "What height should the enclosure have?",
-                        "The enclosure height defines the vertical dimension.",
-                    ),
-                    (
-                        "enclosure_depth",
-                        ("depth", "deep"),
-                        "What depth should the enclosure have?",
-                        "The enclosure depth defines the second horizontal dimension.",
-                    ),
-                    (
-                        "wall_thickness",
-                        ("wall", "thickness"),
-                        "What wall thickness should the enclosure use?",
-                        "Wall thickness determines the structural strength and print time.",
-                    ),
-                    (
-                        "corner_radius",
-                        ("corner", "radius", "fillet"),
-                        "What corner radius should the enclosure use?",
-                        "Corner radius affects aesthetics and printability.",
-                    ),
-                ],
-                design_key="enclosure",
-            )
-
-        if "bracket" in request_text:
-            return self._missing_dimension_questions(
-                request_text,
-                answered_parameter_ids,
-                [
-                    (
-                        "bracket_width",
-                        ("width", "wide"),
-                        "What width should the bracket have?",
-                        "The bracket width defines the primary horizontal span.",
-                    ),
-                    (
-                        "bracket_height",
-                        ("height", "tall"),
-                        "What height should the bracket have?",
-                        "The bracket height defines the vertical leg length.",
-                    ),
-                    (
-                        "bracket_thickness",
-                        ("thickness",),
-                        "What material thickness should the bracket use?",
-                        "Material thickness determines the bracket's load capacity.",
-                    ),
-                    (
-                        "mounting_hole_diameter",
-                        ("mounting hole", "hole", "screw"),
-                        "What mounting hole diameter should the bracket use?",
-                        "Hole diameter must match the fastener size.",
-                    ),
-                    (
-                        "hole_spacing",
-                        ("hole spacing", "spacing", "pitch"),
-                        "What hole spacing should the bracket use?",
-                        "Spacing between mounting holes determines compatibility.",
-                    ),
-                ],
-                design_key="bracket",
-            )
-
-        if "box" in request_text:
-            return self._missing_dimension_questions(
-                request_text,
-                answered_parameter_ids,
-                [
-                    (
-                        "box_width",
-                        ("width", "wide"),
-                        "What interior width should the box have?",
-                        "The box width defines the primary horizontal dimension.",
-                    ),
-                    (
-                        "box_depth",
-                        ("depth", "deep"),
-                        "What interior depth should the box have?",
-                        "The box depth defines the second horizontal dimension.",
-                    ),
-                    (
-                        "box_height",
-                        ("height", "tall"),
-                        "What interior height should the box have?",
-                        "The box height defines the vertical dimension and usable volume.",
-                    ),
-                    (
-                        "wall_thickness",
-                        ("wall", "thickness"),
-                        "What wall thickness should the box use?",
-                        "Wall thickness determines the structural strength of the box.",
-                    ),
-                ],
-                design_key="box",
-            )
-
-        return []
-
-    def _missing_dimension_questions(
-        self,
-        request_text: str,
-        answered_parameter_ids: set[str],
-        specs: list[tuple[str, tuple[str, ...], str, str]],
-        *,
-        design_key: str | None = None,
-    ) -> list[ParameterQuestion]:
-        questions: list[ParameterQuestion] = []
-        design_defaults = _DESIGN_DEFAULTS.get(design_key, {}) if design_key else {}
-        for parameter_id, keywords, question, reason in specs:
-            if parameter_id in answered_parameter_ids:
-                continue
-            if parameter_id in design_defaults:
-                # Parameter has an industry-standard default; skip asking
-                continue
-            if self._has_linear_measurement_near_keywords(request_text, keywords):
-                continue
-            questions.append(self._dimension_question(parameter_id, question, reason))
-        return questions
-
-    @staticmethod
-    def _dimension_question(
-        parameter_id: str,
-        question: str,
-        reason: str,
-        *,
-        current_value: Any | None = None,
-        issue: str | None = None,
-        default: Any | None = None,
-    ) -> ParameterQuestion:
-        return ParameterQuestion(
-            parameter_id=parameter_id,
-            question=question,
-            value_type="dimension",
-            unit=None,
-            unit_options=["mm", "cm", "inch"],
-            options=[],
-            reason=reason,
-            default=default,
-            current_value=current_value,
-            issue=issue,
-        )
-
-    @staticmethod
-    def _has_linear_measurement(request_text: str) -> bool:
-        return bool(_LINEAR_UNIT_PATTERN.search(request_text))
-
-    @staticmethod
-    def _has_volume_measurement(request_text: str) -> bool:
-        return bool(_VOLUME_UNIT_PATTERN.search(request_text))
-
-    @staticmethod
-    def _has_linear_measurement_near_keywords(request_text: str, keywords: tuple[str, ...]) -> bool:
-        for match in _LINEAR_UNIT_PATTERN.finditer(request_text):
-            window_start = max(0, match.start() - 45)
-            window_end = min(len(request_text), match.end() + 45)
-            window = request_text[window_start:window_end]
-            if any(keyword in window for keyword in keywords):
-                return True
-        return False
-
-    @staticmethod
-    def _has_number_near_keywords(request_text: str, keywords: tuple[str, ...]) -> bool:
-        for match in _NUMBER_PATTERN.finditer(request_text):
-            window_start = max(0, match.start() - 35)
-            window_end = min(len(request_text), match.end() + 35)
-            window = request_text[window_start:window_end]
-            if any(keyword in window for keyword in keywords):
-                return True
-        return False
-
-    @staticmethod
-    def _parameter_id_from_window(window: str, index: int) -> str:
-        if "side" in window:
-            return "side_length"
-        if "height" in window or "tall" in window:
-            return "height"
-        if "width" in window or "wide" in window:
-            return "width"
-        if "depth" in window or "deep" in window:
-            return "depth"
-        if "diameter" in window:
-            return "diameter"
-        if "radius" in window:
-            return "radius"
-        if "thickness" in window:
-            return "thickness"
-        if "clearance" in window:
-            return "clearance"
-        return f"dimension_{index}"
 
     @staticmethod
     def _extract_json_object(raw_response: str) -> Any:

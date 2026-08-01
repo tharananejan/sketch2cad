@@ -12,6 +12,8 @@ def main():
     execution_dir = backend_dir / "agents" / "execution"
     code_gen_dir = backend_dir / "agents" / "code-generator"
     parameter_dir = backend_dir / "agents" / "parameter"
+    supervisor_dir = backend_dir / "agents" / "supervisor"
+    planner_dir = backend_dir / "agents" / "planner"
     
     execution_python = execution_dir / ".venv" / "Scripts" / "python.exe"
     if not execution_python.exists():
@@ -29,7 +31,7 @@ def main():
     code_gen_process = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "code-generator-router:app", "--host", "127.0.0.1", "--port", "8001"],
         cwd=str(code_gen_dir),
-        stdout=subprocess.DEVNULL, # Hide server logs to keep terminal clean
+        stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
     
@@ -37,7 +39,23 @@ def main():
     parameter_process = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "parameter-router:app", "--host", "127.0.0.1", "--port", "8002"],
         cwd=str(parameter_dir),
-        stdout=subprocess.DEVNULL, # Hide server logs to keep terminal clean
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    
+    print("[*] Starting Supervisor Agent API...")
+    supervisor_process = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8003"],
+        cwd=str(supervisor_dir),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    
+    print("[*] Starting Planner Agent API...")
+    planner_process = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "agents.planner.api:app", "--host", "127.0.0.1", "--port", "8004"],
+        cwd=str(backend_dir),
+        stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
     
@@ -73,9 +91,14 @@ def main():
         execution_process.terminate()
         code_gen_process.terminate()
         parameter_process.terminate()
+        supervisor_process.terminate()
+        planner_process.terminate()
+        
         execution_process.wait()
         code_gen_process.wait()
         parameter_process.wait()
+        supervisor_process.wait()
+        planner_process.wait()
         print("[+] Done!")
 
 if __name__ == "__main__":
