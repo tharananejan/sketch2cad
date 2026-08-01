@@ -1,0 +1,138 @@
+"""Persistent, localhost-only command bridge executed inside FreeCAD GUI.
+
+This file is a template.  The execution agent replaces __BRIDGE_PORT__ and
+__MODEL_PATH__ before launching it as a FreeCAD macro.
+"""
+
+import contextlib
+import io
+import json
+import queue
+import socketserver
+import threading
+import traceback
+
+import FreeCAD as App
+import FreeCADGui as Gui
+
+try:
+    from PySide import QtCore
+except ImportError:
+    from PySide6 import QtCore
+
+
+BRIDGE_PORT = __BRIDGE_PORT__
+MODEL_PATH = __MODEL_PATH__
+REQUEST_TIMEOUT_SECONDS = 60
+REQUEST_QUEUE = queue.Queue()
+
+
+def _failure(step_id, stdout, error_trace):
+    return {
+        "step_id": step_id,
+        "status": "FAILED",
+        "stdout": stdout,
+        "error_trace": error_trace,
+    }
+
+
+def _execute_in_active_document(request):
+    step_id = request.get("step_id")
+    code = request.get("code")
+    if type(step_id) is not int or not isinstance(code, str):
+        return _failure(step_id, "", "Invalid execution request contract.")
+
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    try:
+        execution_globals = {
+            "__name__": "__main__",
+            "__file__": "<sketch2cad-step-{}>".format(step_id),
+        }
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            exec(compile(code, execution_globals["__file__"], "exec"), execution_globals)
+
+        document = App.ActiveDocument
+        if document is None:
+            raise RuntimeError("Generated code completed without an active FreeCAD document.")
+
+        document.recompute()
+        document.saveAs(MODEL_PATH)
+        try:
+            Gui.activeDocument().activeView().viewAxonometric()
+            Gui.activeDocument().activeView().fitAll()
+        except Exception:
+            pass
+
+        return {
+            "step_id": step_id,
+            "status": "SUCCESS",
+            "stdout": stdout.getvalue(),
+            "error_trace": None,
+        }
+    except Exception:
+        trace = stderr.getvalue() + traceback.format_exc()
+        return _failure(step_id, stdout.getvalue(), trace)
+
+
+class _BridgeRequestHandler(socketserver.StreamRequestHandler):
+    def handle(self):
+        try:
+            request = json.loads(self.rfile.readline().decode("utf-8"))
+            if request == {"action": "health"}:
+                response = {
+                    "status": "READY",
+                    "project_document_path": MODEL_PATH,
+                }
+            else:
+                response_box = {}
+                completed = threading.Event()
+                REQUEST_QUEUE.put((request, response_box, completed))
+                if completed.wait(REQUEST_TIMEOUT_SECONDS):
+                    response = response_box["response"]
+                else:
+                    response = _failure(
+                        request.get("step_id"),
+                        "",
+                        "FreeCAD GUI did not complete the request within 60 seconds.",
+                    )
+        except Exception:
+            response = _failure(None, "", traceback.format_exc())
+
+        self.wfile.write((json.dumps(response, ensure_ascii=True) + "\n").encode("utf-8"))
+
+
+class _BridgeServer(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+class _RequestPump:
+    def __init__(self):
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self._drain)
+        self.timer.start(50)
+
+    def _drain(self):
+        while True:
+            try:
+                request, response_box, completed = REQUEST_QUEUE.get_nowait()
+            except queue.Empty:
+                return
+
+            try:
+                response_box["response"] = _execute_in_active_document(request)
+            except Exception:
+                response_box["response"] = _failure(
+                    request.get("step_id"), "", traceback.format_exc()
+                )
+            finally:
+                completed.set()
+
+
+_bridge_server = _BridgeServer(("127.0.0.1", BRIDGE_PORT), _BridgeRequestHandler)
+_server_thread = threading.Thread(target=_bridge_server.serve_forever)
+_server_thread.daemon = True
+_server_thread.start()
+_request_pump = _RequestPump()
+print("Sketch2CAD persistent GUI bridge is ready on port {}.".format(BRIDGE_PORT))

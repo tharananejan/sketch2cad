@@ -1,0 +1,4 @@
+{
+  "step_id": 1,
+  "code": "import FreeCAD, Part, MeshPart\n\ndoc = FreeCAD.newDocument('Sketch2CADReference')\nbox = Part.makeBox(30.0, 30.0, 10.0)\ncylinder = Part.makeCylinder(8.0, 20.0, FreeCAD.Vector(15, 15, 10))\nmodel = box.fuse(cylinder)\n\nPart.export([model], 'reference_model.step')\nmesh = MeshPart.meshFromShape(Shape=model, LinearDeflection=0.01, AngularDeflection=0.1)\nmesh.write('reference_model.stl')\nmesh.write('reference_model.obj')\n\nprint('=== CAD VERIFICATION READOUT ===')\nprint(f'Calculated Volume: {model.Volume:.2f} mm3')\nprint(f'Bounding Box: {model.BoundBox}')\nprint(f'Geometry Valid: {model.isValid()}')\nprint('Exported reference_model.step, reference_model.stl, and reference_model.obj')\n"
+}
