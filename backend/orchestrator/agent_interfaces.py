@@ -189,7 +189,7 @@ class ParameterAgentInterface(BaseAgentInterface):
                     
                     # Hardcoded question generation by Orchestrator
                     question = f"What is the {current_missing} of the {context.shape_type}?"
-                    print(f"\n\033[96m🤖 Parameter Agent Asks:\033[0m \033[93m{question}\033[0m")
+                    print(f"\n\033[96m[Parameter Agent] Asks:\033[0m \033[93m{question}\033[0m")
                     
                     try:
                         user_answer = input("\033[92mYour Answer > \033[0m").strip()
@@ -325,7 +325,7 @@ class PlannerAgentInterface(BaseAgentInterface):
                             if q_id in parameter_answers and not issue:
                                 continue
                                 
-                            print(f"\n\033[96m🤖 Planner Agent Asks:\033[0m \033[93m{q_text}\033[0m")
+                            print(f"\n\033[96m[Planner Agent] Asks:\033[0m \033[93m{q_text}\033[0m")
                             if reason:
                                 print(f"\033[90m({reason})\033[0m")
                             if issue:
@@ -467,7 +467,7 @@ class CodeGeneratorAgentInterface(BaseAgentInterface):
                     
                 context.generated_code = "\n".join(code_array)
                 print("\033[95m--- Generated Code ---\033[0m")
-                print(context.generated_code)
+                print(f"```python\n{context.generated_code}\n```")
                 print("\033[95m----------------------\033[0m")
                 
                 context.current_state = AgentState.EXECUTION
