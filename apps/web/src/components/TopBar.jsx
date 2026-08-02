@@ -1,6 +1,16 @@
 import { LogoMark, IconChevronLeft, IconChevronRight, IconSun, IconMoon } from './icons'
+import ProfileDropdown from './ProfileDropdown'
 
-export default function TopBar({ onToggleSidebar, theme, onToggleTheme, sidebarVisible }) {
+export default function TopBar({
+  onToggleSidebar,
+  theme,
+  onToggleTheme,
+  sidebarVisible,
+  user,
+  onOpenAuth,
+  onOpenSettings,
+  onLogout,
+}) {
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -26,6 +36,16 @@ export default function TopBar({ onToggleSidebar, theme, onToggleTheme, sidebarV
         >
           {theme === 'dark' ? <IconSun size={17} /> : <IconMoon size={17} />}
         </button>
+      </div>
+
+      <div className="topbar-right">
+        {user ? (
+          <ProfileDropdown user={user} onOpenSettings={onOpenSettings} onLogout={onLogout} />
+        ) : (
+          <button type="button" className="login-btn" onClick={onOpenAuth}>
+            Login
+          </button>
+        )}
       </div>
     </header>
   )

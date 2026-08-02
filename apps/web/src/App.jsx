@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
 import TopBar from './components/TopBar'
 import Sidebar from './components/Sidebar'
 import ChatPane from './components/ChatPane'
 import SettingsModal from './components/SettingsModal'
-import SignInScreen from './components/SignInScreen'
+import AuthModal from './components/auth/AuthModal'
+import { useAuth } from './auth/AuthProvider'
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
@@ -25,19 +27,19 @@ const seed = [
           {
             id: 'm2',
             role: 'assistant',
-            text: 'Here\u2019s the parametric pass: a 120\u00d780 plate, two 30mm slots on the top face, and a 12mm lip on the rear. The slot length is driven by a single `slot` variable, so you can tune it without breaking the sketch. Drop a hand sketch in and I\u2019ll trace the outline into the model.',
+            text: 'Here’s the parametric pass: a 120×80 plate, two 30mm slots on the top face, and a 12mm lip on the rear. The slot length is driven by a single `slot` variable, so you can tune it without breaking the sketch. Drop a hand sketch in and I’ll trace the outline into the model.',
             time: '13:58',
           },
           {
             id: 'm3',
             role: 'user',
-            text: 'Let\u2019s make the lip 16mm and add 4mm corner fillets.',
+            text: 'Let’s make the lip 16mm and add 4mm corner fillets.',
             time: '14:02',
           },
           {
             id: 'm4',
             role: 'assistant',
-            text: 'Updated \u2014 lip is now 16mm and all four corners carry R4 fillets. The radius lives in one parameter (`filletR`), so swapping to chamfers is a single edit. Want the STEP export next?',
+            text: 'Updated — lip is now 16mm and all four corners carry R4 fillets. The radius lives in one parameter (`filletR`), so swapping to chamfers is a single edit. Want the STEP export next?',
             time: '14:02',
           },
         ],
@@ -49,13 +51,13 @@ const seed = [
           {
             id: 'm1',
             role: 'user',
-            text: 'A 60mm diameter duct that bends 90\u00b0 to a square flange.',
+            text: 'A 60mm diameter duct that bends 90° to a square flange.',
             time: '12:10',
           },
           {
             id: 'm2',
             role: 'assistant',
-            text: 'Laid out: 60mm tube, 90\u00b0 bend with R35 centreline, flanged to a 90\u00d790 plate with four corner holes. The bend radius is the one knob to turn \u2014 everything downstream recomputes from it.',
+            text: 'Laid out: 60mm tube, 90° bend with R35 centreline, flanged to a 90×90 plate with four corner holes. The bend radius is the one knob to turn — everything downstream recomputes from it.',
             time: '12:11',
           },
         ],
@@ -73,7 +75,7 @@ const seed = [
           {
             id: 'm2',
             role: 'assistant',
-            text: 'Fixed \u2014 centre distance is back to 40mm and the sketch is fully constrained again. Re-exporting FCStd now.',
+            text: 'Fixed — centre distance is back to 40mm and the sketch is fully constrained again. Re-exporting FCStd now.',
             time: '11:42',
           },
         ],
@@ -113,18 +115,18 @@ const seed = [
 ]
 
 const REPLIES = [
-  'Done \u2014 I\u2019ve sketched the first parametric pass. The critical dimensions are exposed as named parameters, so change one value and the whole part recomputes. Want me to lock in tolerances next?',
-  'That\u2019s in the model now. I\u2019ve constrained the sketch so the profile won\u2019t break when you edit the overall height. I can also hand you the STEP / FCStd export when you\u2019re ready.',
-  'Noted. I\u2019ve added it to the model and re-checked the sketch for under-constraint. The solver is happy. Anything else you want driven by parameters rather than fixed numbers?',
+  'Done — I’ve sketched the first parametric pass. The critical dimensions are exposed as named parameters, so change one value and the whole part recomputes. Want me to lock in tolerances next?',
+  'That’s in the model now. I’ve constrained the sketch so the profile won’t break when you edit the overall height. I can also hand you the STEP / FCStd export when you’re ready.',
+  'Noted. I’ve added it to the model and re-checked the sketch for under-constraint. The solver is happy. Anything else you want driven by parameters rather than fixed numbers?',
 ]
 
 function pickReply(text) {
   const t = text.toLowerCase()
   if (t.includes('fillet') || t.includes('radius') || t.includes('chamfer')) {
-    return 'Added. The fillet radius is one parameter (`filletR`), so if you want to swap to chamfers it\u2019s a single edit. I kept every other constraint intact so nothing else shifts.'
+    return 'Added. The fillet radius is one parameter (`filletR`), so if you want to swap to chamfers it’s a single edit. I kept every other constraint intact so nothing else shifts.'
   }
   if (t.includes('hole') || t.includes('screw') || t.includes('bolt') || t.includes('m8') || t.includes('m6')) {
-    return 'The hole pattern is in \u2014 spacing, depth, and clearance are all driven by named parameters. Change `holeØ` once and every instance updates together. Want countersinks?'
+    return 'The hole pattern is in — spacing, depth, and clearance are all driven by named parameters. Change `holeØ` once and every instance updates together. Want countersinks?'
   }
   return REPLIES[Math.floor(Math.random() * REPLIES.length)]
 }
@@ -133,21 +135,22 @@ const nowTime = () =>
   new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 export default function App() {
+  const { user, recoveryPending, clearRecovery, showToast, signOut, updateProfile, changePassword } = useAuth()
   const [projects, setProjects] = useState(seed)
   const [activeProjectId, setActiveProjectId] = useState(null)
   const [activeChatId, setActiveChatId] = useState(null)
   const [query, setQuery] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [signedOut, setSignedOut] = useState(false)
+  const [authOpen, setAuthOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false,
   )
   const [draftingChatId, setDraftingChatId] = useState(null)
-  const [toast, setToast] = useState(null) // { id, msg }
-  const toastTimer = useRef(null)
-  const [profile, setProfile] = useState(() => {
+
+  // Profile — from the auth user when signed in, else the local guest profile.
+  const [guestProfile, setGuestProfile] = useState(() => {
     try {
       const stored = window.localStorage.getItem('s2c-profile')
       if (stored) {
@@ -157,11 +160,16 @@ export default function App() {
     } catch {
       /* storage unavailable */
     }
-    return { name: 'Ari R.', email: 'ari@studio.local' }
+    return { name: 'Guest drafter', email: 'guest@sketch2cad.local' }
   })
+
+  const profile = user
+    ? { name: user.displayName, email: user.email }
+    : guestProfile
+
   const DEFAULT_PREFS = {
     units: 'Millimetres',
-    solver: 'Local Qwen \u00b7 4-bit',
+    solver: 'Local Qwen · 4-bit',
     export: 'FreeCAD (.FCStd)',
     alsoStep: true,
     alsoStl: false,
@@ -203,11 +211,11 @@ export default function App() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem('s2c-profile', JSON.stringify(profile))
+      window.localStorage.setItem('s2c-profile', JSON.stringify(guestProfile))
     } catch {
       /* storage unavailable */
     }
-  }, [profile])
+  }, [guestProfile])
 
   useEffect(() => {
     try {
@@ -228,6 +236,16 @@ export default function App() {
   }, [])
 
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
+
+  // A real recovery link opens the auth modal straight into the reset view.
+  useEffect(() => {
+    if (recoveryPending) {
+      setAuthOpen(true)
+    }
+  }, [recoveryPending])
+
+  // Shared links (#/share/...) resolve to a lightweight confirmable page later;
+  // for now keep the app fully usable.
 
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null
   const activeChat =
@@ -257,8 +275,6 @@ export default function App() {
   }
 
   function ensureChat() {
-    // Returns a working (projectId, chatId) pair, creating a chat — or a whole
-    // project if the desk is empty — when none is open.
     let pid = activeProjectId
     if (!pid) pid = projects[0]?.id
     if (!pid) {
@@ -291,7 +307,7 @@ export default function App() {
       name:
         c.name === 'New chat'
           ? (text || 'Sketch').split(/\s+/).slice(0, 5).join(' ') +
-            ((text || 'Sketch').split(/\s+/).length > 5 ? '\u2026' : '')
+            ((text || 'Sketch').split(/\s+/).length > 5 ? '…' : '')
           : c.name,
       messages: [...c.messages, { id: uid(), role: 'user', text, attachments, time: nowTime() }],
     }))
@@ -403,14 +419,19 @@ export default function App() {
     }
   }
 
-  function handleLogout() {
-    setSignedOut(true)
+  async function handleLogout() {
+    setSettingsOpen(false)
+    await signOut()
+    showToast('Signed out — the desk is still here.')
   }
 
-  function showToast(msg) {
-    setToast({ id: Date.now(), msg })
-    window.clearTimeout(toastTimer.current)
-    toastTimer.current = window.setTimeout(() => setToast(null), 2400)
+  function handleProfileChange(patch) {
+    if (user && patch.name && patch.name !== user.displayName) {
+      updateProfile({ displayName: patch.name }).catch(() => {
+        showToast('Could not update profile', { tone: 'err' })
+      })
+    }
+    setGuestProfile((prev) => ({ ...prev, ...patch }))
   }
 
   async function copyLink(link) {
@@ -418,7 +439,6 @@ export default function App() {
       await navigator.clipboard.writeText(link)
       return true
     } catch {
-      // Clipboard API unavailable (e.g. non-secure context) — fall back to a temp textarea.
       try {
         const ta = document.createElement('textarea')
         ta.value = link
@@ -443,68 +463,70 @@ export default function App() {
 
   async function shareProject(id, name) {
     const ok = await copyLink(shareUrl('project', id, name))
-    showToast(ok ? `Project link copied \u2014 paste it anywhere` : 'Could not copy link \u2014 try again')
+    showToast(ok ? 'Project link copied — paste it anywhere' : 'Could not copy link — try again', { tone: ok ? 'ok' : 'err' })
   }
 
   async function shareChat(id, name) {
     const ok = await copyLink(shareUrl('chat', id, name))
-    showToast(ok ? `Chat link copied \u2014 paste it anywhere` : 'Could not copy link \u2014 try again')
-  }
-
-  if (signedOut) {
-    return <SignInScreen onSignIn={() => setSignedOut(false)} />
+    showToast(ok ? 'Chat link copied — paste it anywhere' : 'Could not copy link — try again', { tone: ok ? 'ok' : 'err' })
   }
 
   return (
     <>
-      <div className="app-shell" inert={settingsOpen ? '' : undefined}>
-      <TopBar
-        onToggleSidebar={toggleSidebar}
-        theme={theme}
-        onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-        sidebarVisible={isMobile ? sidebarOpen : !sidebarCollapsed}
-      />
-
-      <div className={`main-row ${sidebarCollapsed && !isMobile ? 'collapsed' : ''}`}>
-        <Sidebar
-          projects={projects}
-          filteredProjects={filteredProjects}
-          activeProject={activeProject}
-          activeProjectId={activeProjectId}
-          activeChatId={activeChatId}
-          filteredChats={filteredChats}
-          query={query}
-          onQuery={setQuery}
-          profile={profile}
-          totalChats={activeProject?.chats.length ?? 0}
-          onSelectProject={selectProject}
-          onSelectChat={selectChat}
-          onNewChat={newChat}
-          onNewProject={newProject}
-          onRenameProject={renameProject}
-          onDeleteProject={deleteProject}
-          onShareProject={shareProject}
-          onRenameChat={renameChat}
-          onDeleteChat={deleteChat}
-          onShareChat={shareChat}
+      <div className="app-shell" inert={settingsOpen || authOpen ? '' : undefined}>
+        <TopBar
+          onToggleSidebar={toggleSidebar}
+          theme={theme}
+          onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+          sidebarVisible={isMobile ? sidebarOpen : !sidebarCollapsed}
+          user={user}
+          onOpenAuth={() => setAuthOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
           onLogout={handleLogout}
-          open={sidebarOpen}
-          collapsed={isMobile ? false : sidebarCollapsed}
-          isMobile={isMobile}
-          onClose={() => setSidebarOpen(false)}
-          onExpand={expandSidebar}
-          onSelectProjectRail={selectProjectAndExpand}
         />
 
-        <main className="pane">
-          <ChatPane
-            chat={activeChat}
-            drafting={draftingChatId === activeChatId}
-            onSend={sendMessage}
+        <div className={`main-row ${sidebarCollapsed && !isMobile ? 'collapsed' : ''}`}>
+          <Sidebar
+            projects={projects}
+            filteredProjects={filteredProjects}
+            activeProject={activeProject}
+            activeProjectId={activeProjectId}
+            activeChatId={activeChatId}
+            filteredChats={filteredChats}
+            query={query}
+            onQuery={setQuery}
+            profile={profile}
+            signedIn={Boolean(user)}
+            totalChats={activeProject?.chats.length ?? 0}
+            onSelectProject={selectProject}
+            onSelectChat={selectChat}
+            onNewChat={newChat}
+            onNewProject={newProject}
+            onRenameProject={renameProject}
+            onDeleteProject={deleteProject}
+            onShareProject={shareProject}
+            onRenameChat={renameChat}
+            onDeleteChat={deleteChat}
+            onShareChat={shareChat}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenAuth={() => setAuthOpen(true)}
+            onLogout={handleLogout}
+            open={sidebarOpen}
+            collapsed={isMobile ? false : sidebarCollapsed}
+            isMobile={isMobile}
+            onClose={() => setSidebarOpen(false)}
+            onExpand={expandSidebar}
+            onSelectProjectRail={selectProjectAndExpand}
           />
-        </main>
-      </div>
+
+          <main className="pane">
+            <ChatPane
+              chat={activeChat}
+              drafting={draftingChatId === activeChatId}
+              onSend={sendMessage}
+            />
+          </main>
+        </div>
       </div>
 
       {settingsOpen && (
@@ -512,19 +534,30 @@ export default function App() {
           theme={theme}
           onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
           profile={profile}
-          onProfileChange={setProfile}
+          signedIn={Boolean(user)}
+          onProfileChange={handleProfileChange}
+          onChangePassword={async (current, next) => {
+            await changePassword(current, next)
+            showToast('Password updated.')
+          }}
+          onLogout={handleLogout}
           prefs={prefs}
           onPrefsChange={setPrefs}
           onClose={closeSettings}
         />
       )}
 
-      {toast && (
-        <div className="toast" role="status" key={toast.id}>
-          <span className="toast-check">✓</span>
-          {toast.msg}
-        </div>
-      )}
+      <AnimatePresence>
+        {authOpen && (
+          <AuthModal
+            initialView={recoveryPending ? 'reset' : 'login'}
+            onClose={() => {
+              setAuthOpen(false)
+              clearRecovery()
+            }}
+          />
+        )}
+      </AnimatePresence>
     </>
   )
 }

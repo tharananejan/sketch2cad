@@ -164,6 +164,93 @@ export const IconMoon = ({ size = 17 }) => (
   </svg>
 )
 
+/* Official Google G — multicolor, for the branded OAuth button. */
+export const IconGoogle = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.57 5.57 0 0 1-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82Z" />
+    <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09A11.99 11.99 0 0 0 12 24Z" />
+    <path fill="#FBBC05" d="M5.27 14.29A7.17 7.17 0 0 1 4.89 12c0-.8.14-1.57.38-2.29V6.62H1.29a11.99 11.99 0 0 0 0 10.76l3.98-3.09Z" />
+    <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.69 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75Z" />
+  </svg>
+)
+
+export const IconEye = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+    <circle cx="12" cy="12" r="2.8" />
+  </svg>
+)
+
+export const IconEyeOff = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <path d="M2.5 12S6 5.5 12 5.5c1.2 0 2.3.25 3.3.66M20.9 9.4C21.8 10.6 21.5 12 21.5 12s-3.5 6.5-9.5 6.5c-1.4 0-2.7-.33-3.8-.9" />
+    <path d="m4 4 16 16" />
+  </svg>
+)
+
+export const IconMail = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <rect x="3" y="5" width="18" height="14" rx="2.5" />
+    <path d="m4 7.5 8 5.5 8-5.5" />
+  </svg>
+)
+
+export const IconLock = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <rect x="5" y="10.5" width="14" height="9.5" rx="2.5" />
+    <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+    <circle cx="12" cy="15.5" r="1.4" />
+  </svg>
+)
+
+export const IconShield = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <path d="M12 3 5 6v5.5c0 4.4 3 8 7 9.5 4-1.5 7-5.1 7-9.5V6Z" />
+    <path d="m9 11.8 2.2 2.2 4-4.2" />
+  </svg>
+)
+
+export const IconKey = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <circle cx="8" cy="15.5" r="4.5" />
+    <path d="m11.2 12.3 8.3-8.3M16 7l3 3M13 10l2 2" />
+  </svg>
+)
+
+export const IconArrowLeft = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <path d="M19 12H5m0 0 6-6m-6 6 6 6" />
+  </svg>
+)
+
+export const IconRefresh = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <path d="M20 11a8 8 0 1 0-2.3 6.3" />
+    <path d="M20 5v6h-6" />
+  </svg>
+)
+
+export const IconTrash = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13" />
+    <path d="M10 11v5.5M14 11v5.5" />
+  </svg>
+)
+
+export const IconAlert = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <path d="M12 3.5 2.5 20h19Z" />
+    <path d="M12 10v4.5M12 17.5v.5" />
+  </svg>
+)
+
+export const IconCheckCircle = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" {...base}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m8 12.2 2.6 2.6L16.2 9" />
+  </svg>
+)
+
 /* Brand mark: a wobbly hand-sketched line resolving into crisp CAD linework. */
 export const LogoMark = ({ size = 26 }) => (
   <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className="logo-mark">

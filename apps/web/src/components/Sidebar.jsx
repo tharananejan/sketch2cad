@@ -9,7 +9,9 @@ import {
   IconLogout,
   IconDots,
   IconShare,
+  IconUser,
 } from './icons'
+import initials from '../lib/initials'
 
 function RowMenu({ onRename, onShare, onDelete, label }) {
   const [open, setOpen] = useState(false)
@@ -131,7 +133,9 @@ export default function Sidebar({
   onDeleteChat,
   onShareChat,
   onOpenSettings,
+  onOpenAuth,
   onLogout,
+  signedIn,
   open,
   collapsed,
   isMobile,
@@ -209,14 +213,7 @@ export default function Sidebar({
     onExpand()
   }
 
-  const initials =
-    (profile.name || '?')
-      .trim()
-      .split(/\s+/)
-      .map((w) => w[0])
-      .slice(0, 2)
-      .join('')
-      .toUpperCase() || '?'
+  const avatarInitials = initials(profile.name)
 
   if (collapsed) {
     return (
@@ -246,7 +243,7 @@ export default function Sidebar({
         </div>
         <div className="rail-bottom">
           <button type="button" className="rail-avatar" onClick={onExpand} aria-label="Open sidebar" title="Open sidebar">
-            <span className="avatar">{initials}</span>
+            <span className="avatar">{avatarInitials}</span>
           </button>
         </div>
       </aside>
@@ -406,21 +403,38 @@ export default function Sidebar({
             <p className="usage-sub mono">12 of 28 local drafts this month</p>
           </div>
 
-          <div
-            className="profile-wrap"
-            ref={rootRef}
-            onMouseEnter={() => setHovering(true)}
-            onMouseLeave={() => setHovering(false)}
-          >
+          {!signedIn ? (
             <button
               type="button"
-              className="profile-btn sidebar-profile"
-              aria-haspopup="menu"
-              aria-expanded={menuVisible}
-              aria-label="Account menu"
-              onClick={() => setMenuOpen((v) => !v)}
+              className="sidebar-profile signin-row"
+              onClick={onOpenAuth}
+              aria-label="Sign in"
             >
-              <span className="avatar">{initials}</span>
+              <span className="avatar">
+                <IconUser size={15} />
+              </span>
+              <span className="profile-id">
+                <span className="profile-name-sm">Sign in</span>
+                <span className="profile-mail mono">Sync your projects</span>
+              </span>
+              <IconChevron className="chev" />
+            </button>
+          ) : (
+            <div
+              className="profile-wrap"
+              ref={rootRef}
+              onMouseEnter={() => setHovering(true)}
+              onMouseLeave={() => setHovering(false)}
+            >
+              <button
+                type="button"
+                className="profile-btn sidebar-profile"
+                aria-haspopup="menu"
+                aria-expanded={menuVisible}
+                aria-label="Account menu"
+                onClick={() => setMenuOpen((v) => !v)}
+              >
+              <span className="avatar">{avatarInitials}</span>
               <span className="profile-id">
                 <span className="profile-name-sm">{profile.name}</span>
                 <span className="profile-mail mono">{profile.email}</span>
@@ -428,41 +442,42 @@ export default function Sidebar({
               <IconChevron className={menuVisible ? 'chev open' : 'chev'} />
             </button>
 
-            <div className={`profile-menu ${menuVisible ? 'show' : ''}`} role="menu" aria-label="Account">
-              <div className="profile-head" role="presentation">
-                <span className="avatar avatar-lg">{initials}</span>
-                <div>
-                  <p className="profile-name">{profile.name}</p>
-                  <p className="profile-mail mono">{profile.email}</p>
+              <div className={`profile-menu ${menuVisible ? 'show' : ''}`} role="menu" aria-label="Account">
+                <div className="profile-head" role="presentation">
+                  <span className="avatar avatar-lg">{avatarInitials}</span>
+                  <div>
+                    <p className="profile-name">{profile.name}</p>
+                    <p className="profile-mail mono">{profile.email}</p>
+                  </div>
                 </div>
+                <div className="menu-rule" />
+                <button
+                  type="button"
+                  className="menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onOpenSettings()
+                  }}
+                >
+                  <IconSettings />
+                  Settings
+                </button>
+                <button
+                  type="button"
+                  className="menu-item danger"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onLogout()
+                  }}
+                >
+                  <IconLogout />
+                  Log out
+                </button>
               </div>
-              <div className="menu-rule" />
-              <button
-                type="button"
-                className="menu-item"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false)
-                  onOpenSettings()
-                }}
-              >
-                <IconSettings />
-                Settings
-              </button>
-              <button
-                type="button"
-                className="menu-item danger"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false)
-                  onLogout()
-                }}
-              >
-                <IconLogout />
-                Log out
-              </button>
             </div>
-          </div>
+          )}
         </div>
       </aside>
 

@@ -9,14 +9,24 @@ import {
   IconDownload,
   IconCheck,
   IconChevron,
+  IconKey,
+  IconShield,
+  IconLogout,
 } from './icons'
+import { PasswordField, ErrorBanner, SuccessFlash } from './auth/fields'
+import PasswordStrength from './auth/PasswordStrength'
+import LoadingButton from './auth/LoadingButton'
+import initials from '../lib/initials'
 
 const SECTIONS = [
   { id: 'profile', label: 'Profile', icon: IconUser },
+  { id: 'account', label: 'Account', icon: IconKey },
+  { id: 'security', label: 'Security', icon: IconShield },
   { id: 'appearance', label: 'Appearance', icon: IconSun },
   { id: 'drafting', label: 'Drafting', icon: IconRuler },
   { id: 'export', label: 'Export', icon: IconDownload },
   { id: 'about', label: 'About', icon: LogoMark },
+  { id: 'danger', label: 'Danger Zone', icon: IconLogout },
 ]
 
 const SOLVERS = [
@@ -32,21 +42,15 @@ const UNITS = [
   { value: 'Inches', note: 'in \u2014 for imperial-first shops' },
 ]
 
-function initials(name) {
-  return name
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase() || '?'
-}
 
 export default function SettingsModal({
   theme,
   onToggleTheme,
   profile,
+  signedIn = false,
   onProfileChange,
+  onChangePassword,
+  onLogout,
   prefs,
   onPrefsChange,
   onClose,
@@ -55,6 +59,14 @@ export default function SettingsModal({
   const [draft, setDraft] = useState({ name: profile.name, email: profile.email })
   const [saved, setSaved] = useState(false)
   const [clearing, setClearing] = useState(false)
+  // Security section
+  const [secCurrent, setSecCurrent] = useState('')
+  const [secNew, setSecNew] = useState('')
+  const [secConfirm, setSecConfirm] = useState('')
+  const [secBusy, setSecBusy] = useState(false)
+  const [secError, setSecError] = useState(null)
+  const [secDone, setSecDone] = useState(false)
+  const [logoutArmed, setLogoutArmed] = useState(false)
   const closeRef = useRef(null)
 
   useEffect(() => {
@@ -86,6 +98,26 @@ export default function SettingsModal({
     window.setTimeout(() => setSaved(false), 2200)
   }
 
+  async function saveSecurity(e) {
+    e.preventDefault()
+    if (!secCurrent || secNew.length < 8 || secNew !== secConfirm || secBusy) return
+    setSecBusy(true)
+    setSecError(null)
+    setSecDone(false)
+    try {
+      await onChangePassword(secCurrent, secNew)
+      setSecDone(true)
+      setSecCurrent('')
+      setSecNew('')
+      setSecConfirm('')
+      window.setTimeout(() => setSecDone(false), 2600)
+    } catch (err) {
+      setSecError(err.message || 'Could not change password.')
+    } finally {
+      setSecBusy(false)
+    }
+  }
+
   function eraseAll() {
     try {
       ;['s2c-theme', 's2c-profile', 's2c-prefs'].forEach((k) => window.localStorage.removeItem(k))
@@ -111,9 +143,14 @@ export default function SettingsModal({
             <span className="eyebrow mono">Workspace</span>
             <h1 className="settings-title">Settings</h1>
           </div>
-          <button ref={closeRef} type="button" className="close-btn" onClick={onClose} aria-label="Close settings">
-            <IconClose size={18} />
-          </button>
+          <div className="settings-head-actions">
+            <button type="button" className="cancel-btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button ref={closeRef} type="button" className="close-btn" onClick={onClose} aria-label="Close settings">
+              <IconClose size={18} />
+            </button>
+          </div>
         </header>
 
         <div className="settings-shell">
@@ -142,10 +179,13 @@ export default function SettingsModal({
                 <h2 className="settings-panel-title">{SECTIONS.find((s) => s.id === section).label}</h2>
                 <p className="settings-panel-sub">
                   {section === 'profile' && 'Your name on the desk \u2014 shown in the sidebar and chat.'}
+                  {section === 'account' && 'Your sign-in identity and how you connect.'}
+                  {section === 'security' && 'Keep your account safe with a strong password.'}
                   {section === 'appearance' && 'How the desk looks, in light or dark.'}
                   {section === 'drafting' && 'Units and the model that turns words into parts.'}
                   {section === 'export' && 'What you get when a part is finished.'}
                   {section === 'about' && 'sketch2cad \u2014 local-first, no cloud.'}
+                  {section === 'danger' && 'Sign out of sketch2cad on this device.'}
                 </p>
               </div>
             </div>
@@ -178,7 +218,11 @@ export default function SettingsModal({
                   <div className="settings-row">
                     <div className="settings-cell">
                       <label className="settings-label" htmlFor="s2c-email">Email</label>
-                      <p className="settings-note">Where export notifications land. Never leaves your machine.</p>
+                      <p className="settings-note">
+                        {signedIn
+                          ? 'Managed by your account \u2014 cannot be changed here.'
+                          : 'Where export notifications land. Never leaves your machine.'}
+                      </p>
                     </div>
                     <div className="settings-cell right">
                       <input
@@ -186,6 +230,8 @@ export default function SettingsModal({
                         className="settings-input"
                         type="email"
                         value={draft.email}
+                        readOnly={signedIn}
+                        disabled={signedIn}
                         onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
                         placeholder="ari@studio.local"
                       />
@@ -204,6 +250,141 @@ export default function SettingsModal({
                   </button>
                   {saved && <span className="saved-note">Profile updated everywhere.</span>}
                 </div>
+              </div>
+            )}
+
+            {section === 'account' && (
+              <div className="settings-section">
+                {signedIn ? (
+                  <>
+                    <div className="settings-table">
+                      <div className="settings-row">
+                        <div className="settings-cell">
+                          <p className="settings-label">Account email</p>
+                          <p className="settings-note">Used for sign-in and verification.</p>
+                        </div>
+                        <div className="settings-cell right">
+                          <span className="settings-value mono">{profile.email}</span>
+                        </div>
+                      </div>
+                      <div className="settings-row">
+                        <div className="settings-cell">
+                          <p className="settings-label">Sign-in method</p>
+                          <p className="settings-note">How you authenticate to sketch2cad.</p>
+                        </div>
+                        <div className="settings-cell right">
+                          <span className="settings-value mono">Email / Google</span>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="settings-solver-note">
+                      Change your display name from the Profile tab. Manage your password under Security.
+                    </p>
+                  </>
+                ) : (
+                  <div className="settings-table">
+                    <div className="settings-row">
+                      <div className="settings-cell">
+                        <p className="settings-label">Not signed in</p>
+                        <p className="settings-note">
+                          Account features \u2014 synced display name, password recovery and verification \u2014 need a sign-in.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {section === 'security' && (
+              <div className="settings-section">
+                {signedIn ? (
+                  <form onSubmit={saveSecurity}>
+                    <div className="security-fields">
+                      <PasswordField
+                        id="s2c-sec-current"
+                        label="Current password"
+                        placeholder="Your current password"
+                        value={secCurrent}
+                        onChange={(e) => setSecCurrent(e.target.value)}
+                        autoComplete="current-password"
+                      />
+                      <PasswordField
+                        id="s2c-sec-new"
+                        label="New password"
+                        placeholder="Create a strong password"
+                        value={secNew}
+                        onChange={(e) => setSecNew(e.target.value)}
+                        autoComplete="new-password"
+                      />
+                      <PasswordStrength password={secNew} />
+                      <PasswordField
+                        id="s2c-sec-confirm"
+                        label="Confirm new password"
+                        placeholder="Repeat your new password"
+                        value={secConfirm}
+                        onChange={(e) => setSecConfirm(e.target.value)}
+                        error={secConfirm && secConfirm !== secNew ? 'Passwords do not match.' : null}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                    <ErrorBanner message={secError} />
+                    {secDone && (
+                      <div className="security-done">
+                        <SuccessFlash title="Password updated" sub="Use the new password next time you sign in." />
+                      </div>
+                    )}
+                    <div className="settings-actions">
+                      <LoadingButton
+                        loading={secBusy}
+                        loadingText="Updating password\u2026"
+                        className="save-btn"
+                        disabled={!secCurrent || secNew.length < 8 || secNew !== secConfirm}
+                      >
+                        Save Changes
+                      </LoadingButton>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="settings-table">
+                    <div className="settings-row">
+                      <div className="settings-cell">
+                        <p className="settings-label">Password security</p>
+                        <p className="settings-note">Sign in to change your password.</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {section === 'danger' && (
+              <div className="settings-section">
+                <div className="settings-table danger-table">
+                  <div className="settings-row">
+                    <div className="settings-cell">
+                      <p className="settings-label">Sign out of sketch2cad</p>
+                      <p className="settings-note">Ends this session. Projects and chats stay on this machine.</p>
+                    </div>
+                    <div className="settings-cell right">
+                      <button
+                        type="button"
+                        className={`danger-btn ${logoutArmed ? 'armed' : ''}`}
+                        onClick={() => {
+                          if (logoutArmed) onLogout()
+                          else setLogoutArmed(true)
+                        }}
+                      >
+                        {logoutArmed ? 'Really sign out?' : 'Logout'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <p className="settings-solver-note">
+                  {logoutArmed
+                    ? 'Click again to confirm \u2014 the modal will close and the top bar will show Login.'
+                    : 'You can always sign back in \u2014 your local data is untouched.'}
+                </p>
               </div>
             )}
 
