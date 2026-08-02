@@ -6,7 +6,7 @@
 FreeCAD GUI process through a localhost-only bridge. The first request launches the
 GUI session; every following request runs in that same process and changes the same
 active document. On every successful request the agent recomputes, saves
-`models/sketch2cad.FCStd`, and fits the 3D view. A failure returns the traceback in
+`models/freegen.FCStd`, and fits the 3D view. A failure returns the traceback in
 the normal response contract for the Error Handling Agent.
 
 The generated code must modify `FreeCAD.ActiveDocument` for follow-up changes. For
@@ -26,6 +26,6 @@ Example follow-up script contract:
 ```json
 {
   "step_id": 2,
-  "code": "import FreeCAD as App\nimport Part\ndoc = App.ActiveDocument\nif doc is None:\n    raise RuntimeError('No active Sketch2CAD document')\ncap = doc.addObject('Part::Feature', 'BottleCap')\ncap.Shape = Part.makeCylinder(16, 12, App.Vector(0, 0, 220))\ndoc.recompute()\nprint('Bottle cap added')\n"
+  "code": "import FreeCAD as App\nimport Part\ndoc = App.ActiveDocument\nif doc is None:\n    raise RuntimeError('No active FreeGen document')\ncap = doc.addObject('Part::Feature', 'BottleCap')\ncap.Shape = Part.makeCylinder(16, 12, App.Vector(0, 0, 220))\ndoc.recompute()\nprint('Bottle cap added')\n"
 }
 ```

@@ -1,6 +1,6 @@
-# Sketch2CAD Parameter Checking Agent
+# FreeGen Parameter Checking Agent
 
-This module implements the Parameter Checking & Interactive Dialogue Agent for the Sketch2CAD project. It identifies requested CAD geometric shapes, determines missing required parameters dynamically based on JSON configurations, extracts parameters from natural language input, and leverages the Groq Cloud API to interactively prompt the user for any missing parameters until the requirement is met.
+This module implements the Parameter Checking & Interactive Dialogue Agent for the FreeGen project. It identifies requested CAD geometric shapes, determines missing required parameters dynamically based on JSON configurations, extracts parameters from natural language input, and leverages the Groq Cloud API to interactively prompt the user for any missing parameters until the requirement is met.
 
 ## Project Architecture
 
@@ -53,7 +53,7 @@ This module follows clean architecture and SOLID principles:
 
 ## Running FastAPI
 
-Since this is a module within the `backend` package, it uses relative imports. You must run the server from the root of the project (e.g., `d:\FreeCadAgent\sketch2cad`).
+Since this is a module within the `backend` package, it uses relative imports. You must run the server from the root of the project (e.g., `d:\FreeCadAgent\freegen`).
 
 To start the backend server locally, run:
 
