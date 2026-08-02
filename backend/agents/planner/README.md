@@ -1,6 +1,6 @@
 # Frontier Planning Agent
 
-The Frontier Planning Agent converts already-classified **complex** Sketch2CAD requests into an ordered, implementation-agnostic CAD modeling plan. If CAD-critical parameters are missing, it asks structured follow-up questions before planning. It never writes Python, FreeCAD APIs, CAD syntax, executable scripts, or provider-specific logic into its plan output.
+The Frontier Planning Agent converts already-classified **complex** FreeGen requests into an ordered, implementation-agnostic CAD modeling plan. If CAD-critical parameters are missing, it asks structured follow-up questions before planning. It never writes Python, FreeCAD APIs, CAD syntax, executable scripts, or provider-specific logic into its plan output.
 
 ## Architecture
 

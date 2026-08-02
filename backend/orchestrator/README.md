@@ -1,6 +1,6 @@
-# Sketch2CAD Orchestrator
+# FreeGen Agent Orchestrator
 
-This directory contains the central state machine router for the Sketch2CAD agents.
+This directory contains the central state machine router for the FreeGen agents.
 
 ## Architecture
 
