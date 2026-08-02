@@ -4,7 +4,7 @@ A fully cloud-based, contract-driven multi-agent system for generative CAD. Free
 
 ## Agent Flow
 
-![Agent Flow](agent-flow-freegen.png)
+![Agent Flow](docs/main-flow/agent-flow-freegen.png)
 
 ## How It Works: Multi-Agent Orchestration
 
