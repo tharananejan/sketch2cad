@@ -5,11 +5,16 @@ import {
   IconPlus,
   IconSearch,
   IconChevron,
+  IconChevronLeft,
+  IconChevronRight,
   IconSettings,
   IconLogout,
   IconDots,
   IconShare,
   IconUser,
+  IconSun,
+  IconMoon,
+  LogoMark,
 } from './icons'
 import initials from '../lib/initials'
 
@@ -142,6 +147,9 @@ export default function Sidebar({
   onClose,
   onExpand,
   onSelectProjectRail,
+  theme,
+  onToggleTheme,
+  onToggleSidebar,
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [hovering, setHovering] = useState(false)
@@ -219,6 +227,15 @@ export default function Sidebar({
     return (
       <aside className="sidebar rail" aria-label="Project rail">
         <div className="rail-inner">
+          <button
+            type="button"
+            className="rail-icon rail-expand"
+            onClick={onExpand}
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+          >
+            <IconChevronRight size={17} />
+          </button>
           <button type="button" className="rail-icon" onClick={railSearch} aria-label="Search" title="Search">
             <IconSearch size={17} />
           </button>
@@ -242,6 +259,15 @@ export default function Sidebar({
           </div>
         </div>
         <div className="rail-bottom">
+          <button
+            type="button"
+            className="rail-icon"
+            onClick={onToggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          >
+            {theme === 'dark' ? <IconSun size={17} /> : <IconMoon size={17} />}
+          </button>
           <button type="button" className="rail-avatar" onClick={onExpand} aria-label="Open sidebar" title="Open sidebar">
             <span className="avatar">{avatarInitials}</span>
           </button>
@@ -253,6 +279,30 @@ export default function Sidebar({
   return (
     <>
       <aside className={`sidebar ${open ? 'open' : ''}`}>
+        <div className="sidebar-head">
+          <button
+            type="button"
+            className="icon-btn sidebar-toggle"
+            onClick={onToggleSidebar}
+            aria-label="Hide sidebar"
+            title="Hide sidebar"
+          >
+            <IconChevronLeft size={17} />
+          </button>
+          <a className="brand" href="#root" aria-label="sketch2cad home">
+            <LogoMark size={24} />
+            <span className="brand-word">sketch2cad</span>
+          </a>
+          <button
+            type="button"
+            className="theme-btn"
+            onClick={onToggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          >
+            {theme === 'dark' ? <IconSun size={17} /> : <IconMoon size={17} />}
+          </button>
+        </div>
         <div className="sidebar-body">
           <div className="sidebar-search">
             <IconSearch size={15} />

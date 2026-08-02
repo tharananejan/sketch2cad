@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import TopBar from './components/TopBar'
 import Sidebar from './components/Sidebar'
 import ChatPane from './components/ChatPane'
+import { IconChevronRight } from './components/icons'
 import SettingsModal from './components/SettingsModal'
 import AuthModal from './components/auth/AuthModal'
 import { useAuth } from './auth/AuthProvider'
@@ -474,17 +474,6 @@ export default function App() {
   return (
     <>
       <div className="app-shell" inert={settingsOpen || authOpen ? '' : undefined}>
-        <TopBar
-          onToggleSidebar={toggleSidebar}
-          theme={theme}
-          onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-          sidebarVisible={isMobile ? sidebarOpen : !sidebarCollapsed}
-          user={user}
-          onOpenAuth={() => setAuthOpen(true)}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onLogout={handleLogout}
-        />
-
         <div className={`main-row ${sidebarCollapsed && !isMobile ? 'collapsed' : ''}`}>
           <Sidebar
             projects={projects}
@@ -517,6 +506,9 @@ export default function App() {
             onClose={() => setSidebarOpen(false)}
             onExpand={expandSidebar}
             onSelectProjectRail={selectProjectAndExpand}
+            theme={theme}
+            onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+            onToggleSidebar={toggleSidebar}
           />
 
           <main className="pane">
@@ -528,6 +520,17 @@ export default function App() {
           </main>
         </div>
       </div>
+
+      {isMobile && !sidebarOpen && (
+        <button
+          type="button"
+          className="mobile-rail-toggle"
+          onClick={() => setSidebarOpen(true)}
+          aria-label="Open sidebar"
+        >
+          <IconChevronRight size={17} />
+        </button>
+      )}
 
       {settingsOpen && (
         <SettingsModal

@@ -32,7 +32,6 @@
   --r-sm: 6px;
   --r-md: 10px;
   --r-lg: 14px;
-  --topbar-h: 56px;
   --rail-w: 264px;
   --rail-w-min: 64px;
   --shadow-1: 0 1px 2px rgba(30, 35, 43, 0.05);
@@ -118,11 +117,10 @@ textarea {
 
 .app-shell {
   height: 100%;
-  display: grid;
-  grid-template-rows: var(--topbar-h) 1fr;
 }
 
 .main-row {
+  height: 100%;
   display: grid;
   grid-template-columns: var(--rail-w) 1fr;
   min-height: 0;
@@ -141,23 +139,29 @@ textarea {
   flex-direction: column;
 }
 
-/* ============ top bar ============ */
+/* ============ sidebar head ============ */
 
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-}
-
-.topbar-left {
+.sidebar-head {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 14px 14px 10px;
+}
+
+.sidebar-head .brand {
+  margin-right: auto;
   min-width: 0;
 }
+
+.sidebar-toggle {
+  flex: none;
+}
+
+.mobile-rail-toggle {
+  display: none;
+}
+
+/* ============ shared buttons ============ */
 
 .icon-btn {
   width: 34px;
@@ -463,7 +467,9 @@ textarea {
   padding: 10px 0;
   border-top: 1px solid var(--line);
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
 .rail-avatar {
@@ -1421,20 +1427,52 @@ textarea {
   color: var(--blueprint);
 }
 
-/* attachment previews above the composer */
+/* media tray — a separate bar holding attached sketches above the composer */
 
-.attach-previews {
+.media-tray {
   max-width: 760px;
-  margin: 0 auto 8px;
+  margin: 0 auto 10px;
+  padding: 8px 10px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  animation: tray-in 0.18s ease;
 }
 
-.attach-chip {
+@keyframes tray-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.media-tray-label {
+  flex: none;
+  color: var(--faint);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.media-tray-items {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px;
+}
+
+.media-tile {
   position: relative;
-  width: 52px;
-  height: 52px;
+  flex: none;
+  width: 58px;
+  height: 58px;
   border-radius: var(--r-sm);
   border: 1px solid var(--line-strong);
   overflow: hidden;
@@ -1452,30 +1490,56 @@ textarea {
   }
 }
 
-.attach-chip img {
+.media-tile img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
 
-.chip-x {
+.media-tile-x {
   position: absolute;
-  top: -1px;
-  right: -1px;
+  top: 3px;
+  right: 3px;
   width: 18px;
   height: 18px;
-  border-radius: 0 0 0 6px;
-  background: rgba(20, 24, 31, 0.75);
+  border-radius: 50%;
+  background: rgba(20, 24, 31, 0.78);
   color: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.12s ease;
+  transition: background 0.12s ease, transform 0.12s ease;
 }
 
-.chip-x:hover {
+.media-tile-x:hover {
   background: #b3261e;
+  transform: scale(1.06);
+}
+
+/* drag-and-drop overlay across the chat pane */
+
+.drop-overlay {
+  position: absolute;
+  inset: 14px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 2px dashed var(--blueprint);
+  border-radius: var(--r-lg);
+  background: var(--blueprint-soft);
+  color: var(--blueprint-strong);
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+  animation: modal-fade 0.14s ease;
+}
+
+.chatpane {
+  position: relative;
 }
 
 /* images inside chat messages */
@@ -2290,7 +2354,7 @@ textarea {
 
   .sidebar {
     position: fixed;
-    top: var(--topbar-h);
+    top: 0;
     bottom: 0;
     left: 0;
     width: var(--rail-w);
@@ -2311,10 +2375,27 @@ textarea {
   .scrim {
     display: block;
     position: fixed;
-    inset: var(--topbar-h) 0 0 0;
+    inset: 0 0 0 0;
     background: rgba(30, 35, 43, 0.32);
     z-index: 25;
     backdrop-filter: blur(1px);
+  }
+
+  .mobile-rail-toggle {
+    display: inline-flex;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 20;
+    width: 40px;
+    height: 40px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid var(--line-strong);
+    background: var(--panel);
+    color: var(--graphite);
+    box-shadow: var(--shadow-2);
   }
 
   .thread-scroll {
@@ -2388,94 +2469,6 @@ textarea {
 }
 
 /* ============ auth ============ */
-
-/* top bar right side */
-
-.topbar {
-  justify-content: space-between;
-}
-
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.login-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 20px;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
-  background: var(--panel-2);
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 600;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
-}
-
-.login-btn:hover {
-  border-color: var(--blueprint);
-  color: var(--blueprint);
-  background: var(--blueprint-soft);
-  transform: translateY(-1px);
-}
-
-.login-btn:active {
-  transform: scale(0.97);
-}
-
-/* profile dropdown (top bar) */
-
-.profile-drop-wrap {
-  position: relative;
-}
-
-.profile-drop-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 6px 3px 3px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-.profile-drop-btn:hover {
-  background: var(--panel-2);
-  border-color: var(--line);
-}
-
-.profile-drop {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  width: 236px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-2);
-  padding: 6px;
-  z-index: 70;
-}
-
-.profile-drop-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-}
-
-.profile-drop-head .profile-name {
-  font-size: 13.5px;
-}
-
-.profile-drop-head .avatar-lg {
-  width: 36px;
-  height: 36px;
-  font-size: 12.5px;
-}
 
 /* sidebar sign-in row */
 

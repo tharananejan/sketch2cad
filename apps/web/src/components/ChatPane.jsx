@@ -114,12 +114,19 @@ function WelcomeState({ design, index, onPick }) {
   )
 }
 
-function Composer({ onSend, suggestedPrompt }) {
+function Composer({
+  onSend,
+  suggestedPrompt,
+  attachments,
+  onAddFiles,
+  onAttachSketch,
+  onRemoveAttachment,
+  onClearAttachments,
+}) {
   const [value, setValue] = useState('')
   const [typed, setTyped] = useState('')
   const [attachOpen, setAttachOpen] = useState(false)
   const [sketchOpen, setSketchOpen] = useState(false)
-  const [attachments, setAttachments] = useState([])
   const ref = useRef(null)
   const fileRef = useRef(null)
   const typing = !!suggestedPrompt && value === ''
@@ -165,25 +172,14 @@ function Composer({ onSend, suggestedPrompt }) {
   }, [typed])
 
   function pickImage(e) {
-    const f = e.target.files?.[0]
-    if (!f) return
-    const url = URL.createObjectURL(f)
-    setAttachments((a) => [...a, { id: uid(), kind: 'image', url, name: f.name }])
+    onAddFiles(e.target.files)
     setAttachOpen(false)
     e.target.value = ''
   }
 
   function attachSketch(url) {
-    setAttachments((a) => [...a, { id: uid(), kind: 'sketch', url, name: 'Sketch' }])
+    onAttachSketch(url)
     setSketchOpen(false)
-  }
-
-  function removeAttachment(id) {
-    // Revoke the object URL before the chip is dropped — nothing else
-    // references it once it's out of the preview list.
-    const gone = attachments.find((x) => x.id === id)
-    if (gone?.kind === 'image') URL.revokeObjectURL(gone.url)
-    setAttachments((arr) => arr.filter((x) => x.id !== id))
   }
 
   function submit() {
@@ -195,7 +191,7 @@ function Composer({ onSend, suggestedPrompt }) {
     // renders the same image, so we must NOT revoke them here.
     setValue('')
     setTyped('')
-    setAttachments([])
+    onClearAttachments()
     requestAnimationFrame(() => {
       if (ref.current) {
         ref.current.style.height = 'auto'
@@ -214,20 +210,23 @@ function Composer({ onSend, suggestedPrompt }) {
   return (
     <div className="composer-wrap">
       {attachments.length > 0 && (
-        <div className="attach-previews" aria-label="Attached sketches">
-          {attachments.map((a) => (
-            <span className="attach-chip" key={a.id}>
-              <img src={a.url} alt={a.name} />
-              <button
-                type="button"
-                className="chip-x"
-                aria-label={`Remove ${a.name}`}
-                onClick={() => removeAttachment(a.id)}
-              >
-                <IconClose size={11} />
-              </button>
-            </span>
-          ))}
+        <div className="media-tray" aria-label="Attached media">
+          <span className="media-tray-label mono">Attached</span>
+          <div className="media-tray-items">
+            {attachments.map((a) => (
+              <span className="media-tile" key={a.id}>
+                <img src={a.url} alt={a.name} />
+                <button
+                  type="button"
+                  className="media-tile-x"
+                  aria-label={`Remove ${a.name}`}
+                  onClick={() => onRemoveAttachment(a.id)}
+                >
+                  <IconClose size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
         </div>
       )}
 
@@ -313,7 +312,66 @@ function Composer({ onSend, suggestedPrompt }) {
 
 export default function ChatPane({ chat, drafting, onSend }) {
   const [slide, setSlide] = useState(0)
+  const [attachments, setAttachments] = useState([])
+  const [dragOver, setDragOver] = useState(false)
   const scrollRef = useRef(null)
+  const dragDepth = useRef(0)
+
+  // Clear pending attachments whenever the active chat changes.
+  useEffect(() => {
+    setAttachments([])
+    setDragOver(false)
+    dragDepth.current = 0
+  }, [chat?.id])
+
+  function addAttachment(item) {
+    setAttachments((prev) => [...prev, { id: uid(), ...item }])
+  }
+
+  function addFiles(fileList) {
+    const files = Array.from(fileList || []).filter((f) => f.type.startsWith('image/'))
+    if (!files.length) return
+    files.forEach((f) =>
+      addAttachment({ kind: 'image', url: URL.createObjectURL(f), name: f.name }),
+    )
+  }
+
+  function removeAttachment(id) {
+    setAttachments((prev) => {
+      const gone = prev.find((x) => x.id === id)
+      if (gone?.kind === 'image') URL.revokeObjectURL(gone.url)
+      return prev.filter((x) => x.id !== id)
+    })
+  }
+
+  function hasFiles(e) {
+    return Array.from(e.dataTransfer?.types || []).includes('Files')
+  }
+
+  function onDragEnter(e) {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    dragDepth.current += 1
+    setDragOver(true)
+  }
+
+  function onDragOver(e) {
+    if (!hasFiles(e)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  function onDragLeave() {
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setDragOver(false)
+  }
+
+  function onDrop(e) {
+    e.preventDefault()
+    dragDepth.current = 0
+    setDragOver(false)
+    addFiles(e.dataTransfer?.files)
+  }
 
   // Auto-advance the design slideshow while no chat is open.
   useEffect(() => {
@@ -331,7 +389,20 @@ export default function ChatPane({ chat, drafting, onSend }) {
   const design = DESIGNS[slide]
 
   return (
-    <section className="chatpane" aria-label={chat ? `Chat: ${chat.name ?? ''}` : 'Drafting desk'}>
+    <section
+      className={`chatpane ${dragOver ? 'drag-over' : ''}`}
+      aria-label={chat ? `Chat: ${chat.name ?? ''}` : 'Drafting desk'}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {dragOver && (
+        <div className="drop-overlay" aria-hidden="true">
+          <IconImage size={22} />
+          <span>Drop sketch to attach</span>
+        </div>
+      )}
       <div className="thread-scroll" ref={scrollRef}>
         {!chat ? (
           <WelcomeState design={design} index={slide} onPick={setSlide} />
@@ -347,7 +418,15 @@ export default function ChatPane({ chat, drafting, onSend }) {
         )}
       </div>
 
-      <Composer onSend={onSend} suggestedPrompt={chat ? null : design.prompt} />
+      <Composer
+        onSend={onSend}
+        suggestedPrompt={chat ? null : design.prompt}
+        attachments={attachments}
+        onAddFiles={addFiles}
+        onAttachSketch={(url) => addAttachment({ kind: 'sketch', url, name: 'Sketch' })}
+        onRemoveAttachment={removeAttachment}
+        onClearAttachments={() => setAttachments([])}
+      />
     </section>
   )
 }
