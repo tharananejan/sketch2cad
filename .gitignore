@@ -16,6 +16,7 @@ backend/agents/execution/temp_script.py
 !ENV_KEYS.md
 
 # Python
+.pytest_cache/
 __pycache__/
 **/__pycache__/
 *.py[cod]
