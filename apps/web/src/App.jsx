@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import TopBar from './components/TopBar'
 import Sidebar from './components/Sidebar'
 import ChatPane from './components/ChatPane'
@@ -145,6 +145,36 @@ export default function App() {
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false,
   )
   const [draftingChatId, setDraftingChatId] = useState(null)
+  const [toast, setToast] = useState(null) // { id, msg }
+  const toastTimer = useRef(null)
+  const [profile, setProfile] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem('s2c-profile')
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (parsed.name && parsed.email) return parsed
+      }
+    } catch {
+      /* storage unavailable */
+    }
+    return { name: 'Ari R.', email: 'ari@studio.local' }
+  })
+  const DEFAULT_PREFS = {
+    units: 'Millimetres',
+    solver: 'Local Qwen \u00b7 4-bit',
+    export: 'FreeCAD (.FCStd)',
+    alsoStep: true,
+    alsoStl: false,
+  }
+  const [prefs, setPrefs] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem('s2c-prefs')
+      if (stored) return { ...DEFAULT_PREFS, ...JSON.parse(stored) }
+    } catch {
+      /* storage unavailable */
+    }
+    return DEFAULT_PREFS
+  })
   const [theme, setTheme] = useState(() => {
     let stored = null
     try {
@@ -170,6 +200,22 @@ export default function App() {
       /* storage unavailable */
     }
   }, [theme])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('s2c-profile', JSON.stringify(profile))
+    } catch {
+      /* storage unavailable */
+    }
+  }, [profile])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('s2c-prefs', JSON.stringify(prefs))
+    } catch {
+      /* storage unavailable */
+    }
+  }, [prefs])
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 900px)')
@@ -234,9 +280,9 @@ export default function App() {
     return { pid, cid }
   }
 
-  function sendMessage(raw) {
+  function sendMessage(raw, attachments = []) {
     const text = raw.trim()
-    if (!text) return false
+    if (!text && attachments.length === 0) return false
     const pair = ensureChat()
     if (!pair) return false
     const { pid, cid } = pair
@@ -244,9 +290,10 @@ export default function App() {
       ...c,
       name:
         c.name === 'New chat'
-          ? text.split(/\s+/).slice(0, 5).join(' ') + (text.split(/\s+/).length > 5 ? '\u2026' : '')
+          ? (text || 'Sketch').split(/\s+/).slice(0, 5).join(' ') +
+            ((text || 'Sketch').split(/\s+/).length > 5 ? '\u2026' : '')
           : c.name,
-      messages: [...c.messages, { id: uid(), role: 'user', text, time: nowTime() }],
+      messages: [...c.messages, { id: uid(), role: 'user', text, attachments, time: nowTime() }],
     }))
     setDraftingChatId(cid)
     window.setTimeout(() => {
@@ -360,6 +407,50 @@ export default function App() {
     setSignedOut(true)
   }
 
+  function showToast(msg) {
+    setToast({ id: Date.now(), msg })
+    window.clearTimeout(toastTimer.current)
+    toastTimer.current = window.setTimeout(() => setToast(null), 2400)
+  }
+
+  async function copyLink(link) {
+    try {
+      await navigator.clipboard.writeText(link)
+      return true
+    } catch {
+      // Clipboard API unavailable (e.g. non-secure context) — fall back to a temp textarea.
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = link
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        const ok = document.execCommand('copy')
+        document.body.removeChild(ta)
+        return ok
+      } catch {
+        return false
+      }
+    }
+  }
+
+  function shareUrl(kind, id, name) {
+    const base = typeof window !== 'undefined' ? window.location.origin : 'https://sketch2cad.local'
+    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'item'
+    return `${base}/#/share/${kind}/${id}/${slug}`
+  }
+
+  async function shareProject(id, name) {
+    const ok = await copyLink(shareUrl('project', id, name))
+    showToast(ok ? `Project link copied \u2014 paste it anywhere` : 'Could not copy link \u2014 try again')
+  }
+
+  async function shareChat(id, name) {
+    const ok = await copyLink(shareUrl('chat', id, name))
+    showToast(ok ? `Chat link copied \u2014 paste it anywhere` : 'Could not copy link \u2014 try again')
+  }
+
   if (signedOut) {
     return <SignInScreen onSignIn={() => setSignedOut(false)} />
   }
@@ -384,6 +475,7 @@ export default function App() {
           filteredChats={filteredChats}
           query={query}
           onQuery={setQuery}
+          profile={profile}
           totalChats={activeProject?.chats.length ?? 0}
           onSelectProject={selectProject}
           onSelectChat={selectChat}
@@ -391,8 +483,10 @@ export default function App() {
           onNewProject={newProject}
           onRenameProject={renameProject}
           onDeleteProject={deleteProject}
+          onShareProject={shareProject}
           onRenameChat={renameChat}
           onDeleteChat={deleteChat}
+          onShareChat={shareChat}
           onOpenSettings={() => setSettingsOpen(true)}
           onLogout={handleLogout}
           open={sidebarOpen}
@@ -413,7 +507,24 @@ export default function App() {
       </div>
       </div>
 
-      {settingsOpen && <SettingsModal theme={theme} onClose={closeSettings} />}
+      {settingsOpen && (
+        <SettingsModal
+          theme={theme}
+          onToggleTheme={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+          profile={profile}
+          onProfileChange={setProfile}
+          prefs={prefs}
+          onPrefsChange={setPrefs}
+          onClose={closeSettings}
+        />
+      )}
+
+      {toast && (
+        <div className="toast" role="status" key={toast.id}>
+          <span className="toast-check">✓</span>
+          {toast.msg}
+        </div>
+      )}
     </>
   )
 }
