@@ -293,6 +293,7 @@ class PlannerAgentInterface(BaseAgentInterface):
                     "pending_questions": pending_questions,
                 }
             }
+            print(f"DEBUG: sending payload to planner: {payload}")
             
             req = urllib.request.Request(
                 self.url,
@@ -306,11 +307,10 @@ class PlannerAgentInterface(BaseAgentInterface):
                     status = res_data.get("status")
                     
                     if status == "needs_parameters":
-                        # If we already hit the round cap, skip asking
+                        # If we already hit the round cap, proceed with what we have
                         if round_count > self.MAX_PLANNER_ROUNDS:
-                            print("\033[93m[!] Planner still wants parameters but round cap reached. Failing gracefully.\033[0m")
-                            context.current_state = AgentState.ERROR_HANDLING
-                            return context
+                            print("\033[93m[!] Planner still wants parameters but round cap reached. Proceeding with available parameters.\033[0m")
+                            break
                         
                         questions = res_data.get("questions", [])
                         for q in questions:
@@ -402,11 +402,75 @@ class PlannerAgentInterface(BaseAgentInterface):
                         context.current_state = AgentState.ERROR_HANDLING
                         return context
                         
+            except urllib.error.HTTPError as e:
+                print(f"\033[91m[!] Failed to reach Planner API: HTTP Error {e.code}: {e.reason}\033[0m")
+                print(f"\033[91m[!] Response Body: {e.read().decode('utf-8')}\033[0m")
+                context.execution_errors.append(str(e))
+                context.current_state = AgentState.ERROR_HANDLING
+                return context
             except urllib.error.URLError as e:
                 print(f"\033[91m[!] Failed to reach Planner API: {e}\033[0m")
                 context.execution_errors.append(str(e))
                 context.current_state = AgentState.ERROR_HANDLING
                 return context
+
+        # Fallback: round cap was reached. Make one final call with empty
+        # pending_questions to force the planner past audit into planning.
+        print("\033[93m[!] Forcing planning with collected parameters...\033[0m")
+        fallback_payload = {
+            "request": context.user_prompt,
+            "context": {
+                "parameter_answers": parameter_answers,
+                "completed_steps": context.session_completed_steps,
+                "remaining_steps": [],
+                "errors": [],
+                "pending_questions": [],
+            }
+        }
+        fallback_req = urllib.request.Request(
+            self.url,
+            data=json.dumps(fallback_payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        try:
+            with urllib.request.urlopen(fallback_req) as response:
+                res_data = json.loads(response.read().decode())
+                status = res_data.get("status")
+
+                if status == "planned":
+                    steps = res_data.get("steps", [])
+                    phases = res_data.get("phases", [])
+                    flat_steps = []
+                    if phases:
+                        for phase in phases:
+                            flat_steps.extend(phase.get("steps", []))
+                    else:
+                        flat_steps = steps
+
+                    print("\033[92m[+] Planner successfully generated steps (after round cap):\033[0m")
+                    context.parameter_steps = []
+                    context.planner_step_categories = []
+                    context.planner_parameters = parameter_answers
+
+                    for i, step in enumerate(flat_steps):
+                        step_text = step.get("description", step.get("title", ""))
+                        step_category = step.get("category", "primitive")
+                        print(f"  {i+1}. [{step_category}] {step_text}")
+                        context.parameter_steps.append(step_text)
+                        context.planner_step_categories.append(step_category)
+
+                    context.current_state = AgentState.CODE_GENERATION
+                    return context
+                else:
+                    print(f"\033[91m[!] Planner could not produce a plan even after round cap. Status: {status}\033[0m")
+                    context.current_state = AgentState.ERROR_HANDLING
+                    return context
+
+        except urllib.error.URLError as e:
+            print(f"\033[91m[!] Failed to reach Planner API during fallback: {e}\033[0m")
+            context.execution_errors.append(str(e))
+            context.current_state = AgentState.ERROR_HANDLING
+            return context
 
 class CodeGeneratorAgentInterface(BaseAgentInterface):
     """

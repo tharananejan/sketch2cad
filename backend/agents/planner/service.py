@@ -83,6 +83,7 @@ class PlannerService:
         pending_questions = self._questions_requiring_answers(
             planner_request.context.pending_questions,
             planner_request.context.parameter_answers,
+            ignore_missing=True,
         )
         if pending_questions:
             return NeedsParametersResponse(
@@ -199,16 +200,27 @@ class PlannerService:
         self,
         pending_questions: list[ParameterQuestion],
         parameter_answers: dict[str, Any],
+        ignore_missing: bool = False,
     ) -> list[ParameterQuestion]:
         unresolved_questions: list[ParameterQuestion] = []
         for question in pending_questions:
             if question.parameter_id not in parameter_answers:
+                if ignore_missing:
+                    # User skipped this question. Do not block. We will let the LLM assume a default.
+                    continue
                 unresolved_questions.append(question)
                 continue
 
             answer = parameter_answers[question.parameter_id]
             issue = self._answer_issue(question, answer)
             if issue:
+                # If the answer has a valid dimension shape (value + unit),
+                # accept it anyway — don't re-ask just because the LLM
+                # flagged a cross-parameter concern on a previous round.
+                if question.value_type == "dimension":
+                    coerced = self._coerce_dimension_answer(answer)
+                    if coerced is not None and coerced.unit in _SUPPORTED_UNITS and coerced.value > 0:
+                        continue
                 unresolved_questions.append(
                     question.model_copy(
                         update={
@@ -238,6 +250,16 @@ class PlannerService:
                 unresolved_ids.add(question.parameter_id)
         return unresolved_questions
 
+    # Well-known contradictory qualifier pairs — these should NOT be merged.
+    _CONTRADICTORY_QUALIFIERS = [
+        {"neck", "body"},
+        {"inner", "outer"},
+        {"top", "bottom"},
+        {"front", "back"},
+        {"left", "right"},
+        {"interior", "exterior"},
+    ]
+
     @staticmethod
     def _deduplicate_questions(
         questions: list[ParameterQuestion],
@@ -249,6 +271,10 @@ class PlannerService:
         audit rounds (e.g., ``body_diameter`` in round 1 and ``outer_diameter`` in
         round 2). This method detects overlap via shared dimension keywords and drops
         the duplicate question when the answered key already covers the concept.
+
+        Uses aggressive merging: if the primary dimension keyword matches, treat as
+        duplicate UNLESS the qualifiers form a known contradictory pair (e.g., neck
+        vs body, inner vs outer).
         """
 
         if not parameter_answers:
@@ -274,12 +300,15 @@ class PlannerService:
                     break
                 if q_keywords & a_keywords:
                     # Shared keyword (e.g., both contain "diameter") — likely a duplicate.
-                    # Only flag as duplicate if there is overlap in the non-keyword
-                    # qualifier too ("body" vs "neck" should not be merged).
+                    # Only keep as separate if qualifiers form a known contradictory pair.
                     q_qualifiers = set(question.parameter_id.split("_")) - _DIMENSION_KEYWORDS
                     a_qualifiers = set(answered_id.split("_")) - _DIMENSION_KEYWORDS
-                    # If either has no qualifier, or qualifiers overlap, it's a duplicate
-                    if not q_qualifiers or not a_qualifiers or (q_qualifiers & a_qualifiers):
+                    combined = q_qualifiers | a_qualifiers
+                    is_contradictory = any(
+                        pair <= combined
+                        for pair in PlannerService._CONTRADICTORY_QUALIFIERS
+                    )
+                    if not is_contradictory:
                         is_duplicate = True
                         break
             if not is_duplicate:

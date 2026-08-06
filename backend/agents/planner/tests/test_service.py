@@ -222,8 +222,23 @@ def test_generic_design_with_partial_dimensions_passes_to_audit() -> None:
     assert len(provider.calls) == 2  # Audit + planning
 
 
-def test_partial_pending_answers_reask_only_unanswered_questions() -> None:
-    provider = FakeProvider(ready_response())
+def test_skipped_pending_questions_do_not_block() -> None:
+    provider = FakeProvider(
+        [
+            ready_response(),
+            planned_response(
+                [
+                    {
+                        "step_id": 1,
+                        "title": "Create mug",
+                        "description": "Create mug.",
+                        "category": "primitive",
+                        "depends_on": [],
+                    }
+                ]
+            ),
+        ]
+    )
     service = PlannerService(provider)
 
     response = service.plan(
@@ -243,9 +258,8 @@ def test_partial_pending_answers_reask_only_unanswered_questions() -> None:
         )
     )
 
-    assert response.status == "needs_parameters"
-    assert [question.parameter_id for question in response.questions] == ["wall_thickness"]
-    assert provider.calls == []
+    assert response.status == "planned"
+    assert len(provider.calls) == 2
 
 
 def test_valid_pending_dimension_answer_allows_audit_and_planning() -> None:

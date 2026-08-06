@@ -69,8 +69,7 @@ def launch_services():
     planner_process = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "agents.planner.api:app", "--host", "127.0.0.1", "--port", "8004"],
         cwd=str(backend_dir),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
+        stdout=subprocess.DEVNULL
     )
     
     print("[*] Waiting a few seconds for servers to start...")
