@@ -19,6 +19,9 @@ def get_planner_service() -> PlannerService:
 
 
 def _create_provider(provider_name: str, settings: PlannerSettings) -> LLMProvider:
+    if provider_name == "gemini":
+        from .providers.openai_compatible import OpenAICompatibleProvider
+        return OpenAICompatibleProvider(settings.provider)
     if provider_name == "groq":
         return GroqProvider(settings.provider)
     return DeepSeekProvider(settings.provider)

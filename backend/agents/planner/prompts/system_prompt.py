@@ -46,15 +46,15 @@ RULES:
 2. MISSING PARAMETERS: If a parameter was skipped in context.parameter_answers, make a reasonable engineering assumption to proceed.
 3. EXPLICIT VALUES: Step descriptions MUST include exact resolved numeric values from context.parameter_answers in mm (e.g., "Cylinder radius 50 mm, height 90 mm"). Show formulas in 'planning' steps.
 4. NO CODE: Never output raw code, API calls, or FreeCAD syntax.
-5. CATEGORIES: Each step must be exactly one of: primitive, boolean, transform, planning.
+5. CATEGORIES: Each step must be exactly one of: primitive, boolean, transform, planning, 2d_profile, extrude, revolve, modify.
 
-CSG LIMITATIONS (STRICT):
-You ONLY have: Primitives (Box, Cylinder, Sphere, Cone), Booleans (Cut, Fuse), Transforms (Move).
-NO 2D sketching, revolving, shelling, fillets, chamfers. For hollow objects, create inner primitives and Cut them.
+AVAILABLE CAD OPERATIONS (STRICT):
+You ONLY have: Primitives (Box, Cylinder, Sphere, Cone), Booleans (Cut, Fuse), Transforms (Move), 2D Profiles (Polygons/Faces), Extrusions (Extrude), Revolutions (Revolve), Edge Modifiers (Fillet, Chamfer).
+Use Fillet and Chamfer to modify edges. For hollow objects, create inner shapes and Cut them.
 
 STRUCTURE:
 - SIMPLE parts: Flat plan with "steps" array.
-- COMPLEX parts: Hierarchical plan with "phases". Phases depend on earlier phases. Step IDs must be globally sequential across all phases (1..N).
+- COMPLEX parts: Hierarchical plan with "phases". Phases depend on earlier phases. The "depends_on" array for a phase MUST contain only earlier phase_ids, NEVER step_ids. Step IDs must be globally sequential across all phases (1..N).
 
 JSON Schemas:
 Simple:

@@ -66,7 +66,7 @@ def main():
     router = AgentRouter()
     
     print("\n" + "="*50)
-    print("\033[96m🤖 Sketch2CAD Orchestrator Ready!\033[0m")
+    print("\033[96m[System] Sketch2CAD Orchestrator Ready!\033[0m")
     print("Type your CAD instructions below. Type 'exit' or 'quit' to close.")
     print("="*50 + "\n")
     

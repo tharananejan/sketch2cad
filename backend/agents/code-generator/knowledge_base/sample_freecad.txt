@@ -56,3 +56,53 @@ To move or translate an object to a new location in 3D space:
 # Assuming 'box' is an existing object
 box.Placement.Base = App.Vector(10.0, 20.0, 30.0) # Moves object to X=10, Y=20, Z=30
 doc.recompute()
+
+9. Creating a 2D Profile (Face) from lines:
+To create a flat 2D shape, make a closed wire from lines and convert to a face:
+p1, p2, p3, p4 = App.Vector(0,0,0), App.Vector(10,0,0), App.Vector(10,10,0), App.Vector(0,10,0)
+line1 = Part.LineSegment(p1, p2).toShape()
+line2 = Part.LineSegment(p2, p3).toShape()
+line3 = Part.LineSegment(p3, p4).toShape()
+line4 = Part.LineSegment(p4, p1).toShape()
+wire = Part.Wire([line1, line2, line3, line4])
+face = Part.Face(wire)
+face_obj = doc.addObject("Part::Feature", "Profile")
+face_obj.Shape = face
+doc.recompute()
+
+10. Extruding a 2D Profile/Face:
+To extrude a 2D face into a 3D solid:
+extrude = doc.addObject("Part::Extrusion", "Extrusion")
+extrude.Base = doc.getObject("Profile") # Provide the base object
+extrude.Dir = (0, 0, 20) # Extrude 20mm in Z direction
+extrude.Solid = True
+doc.recompute()
+
+11. Revolving a 2D Profile/Face:
+To revolve a profile around an axis:
+revolve = doc.addObject("Part::Revolve", "Revolve")
+revolve.Base = doc.getObject("Profile")
+revolve.Axis = (App.Vector(0,0,0), App.Vector(0,1,0)) # Revolve around Y-axis
+revolve.Angle = 360.0
+revolve.Solid = True
+doc.recompute()
+
+12. Filleting Edges:
+To fillet all edges of an object. Do not guess edge indices; use a programmatic list comprehension to apply to all edges:
+base_obj = doc.getObject("Box")
+fillet = doc.addObject("Part::Fillet", "Fillet")
+fillet.Base = base_obj
+fillet.Radius = 2.0 # 2mm radius
+edge_names = [f"Edge{i+1}" for i in range(len(base_obj.Shape.Edges))]
+fillet.Edges = (base_obj, edge_names)
+doc.recompute()
+
+13. Chamfering Edges:
+To chamfer all edges of an object programmatically:
+base_obj = doc.getObject("Box")
+chamfer = doc.addObject("Part::Chamfer", "Chamfer")
+chamfer.Base = base_obj
+chamfer.Size = 2.0 # 2mm chamfer distance
+edge_names = [f"Edge{i+1}" for i in range(len(base_obj.Shape.Edges))]
+chamfer.Edges = (base_obj, edge_names)
+doc.recompute()
