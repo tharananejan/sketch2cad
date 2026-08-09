@@ -82,6 +82,7 @@ RULES:
 6. BEST EFFORT: Approximate complex organic shapes using the available primitives. An airplane fuselage can be a cylinder, wings can be thin boxes, tail can be a smaller box, nose can be a cone. Do your best.
 7. ALWAYS RECOMPUTE: Call doc.recompute() at the end.
 8. NO MARKDOWN: Output only the JSON object. No markdown, no explanation, no comments outside the code string.
+9. LOOPS: When creating arrays (e.g., petals, spokes), DO NOT attempt to duplicate or copy an existing extrusion or complex shape. You MUST instantiate fresh primitives (e.g., `Part::Box`, `Part::Cylinder`) directly INSIDE the loop.
 
 FREECAD PYTHON API REFERENCE (use ONLY these patterns):
 
@@ -128,6 +129,16 @@ Move/Position (set absolute position):
 Rotate (set rotation around axis):
   import math
   obj.Placement.Rotation = App.Rotation(App.Vector(axisX, axisY, axisZ), angleDegrees)
+
+Radial Array (Polar Pattern / Petals / Spokes):
+  import math
+  num_items, radius = 5, 20.0
+  for i in range(num_items):
+      angle = (360.0 / num_items) * i
+      rad = math.radians(angle)
+      obj = doc.addObject("Part::Box", f"Petal_{i}")
+      obj.Placement.Base = App.Vector(radius * math.cos(rad), radius * math.sin(rad), 0)
+      obj.Placement.Rotation = App.Rotation(App.Vector(0, 0, 1), angle)
 
 2D Profile from Lines:
   p1, p2, p3, p4 = App.Vector(0,0,0), App.Vector(10,0,0), App.Vector(10,10,0), App.Vector(0,10,0)
