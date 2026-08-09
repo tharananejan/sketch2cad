@@ -60,11 +60,23 @@ class ExecutionRouterTests(unittest.TestCase):
         macro_source = self.router.GUI_BRIDGE_MACRO_PATH.read_text(encoding="utf-8")
         self.assertIn(str(self.router.GUI_BRIDGE_PORT), macro_source)
         self.assertIn(json.dumps(str(self.router.PROJECT_DOCUMENT_PATH)), macro_source)
+        expected_kwargs = {}
+        if sys.platform == "win32":
+            expected_kwargs["creationflags"] = (
+                self.router.subprocess.DETACHED_PROCESS
+                | self.router.subprocess.CREATE_NEW_PROCESS_GROUP
+                | 0x01000000
+            )
+        else:
+            expected_kwargs["start_new_session"] = True
+
         popen.assert_called_once_with(
             ["C:/FreeCAD/FreeCAD.exe", str(self.router.GUI_BRIDGE_MACRO_PATH)],
             stdout=self.router.subprocess.DEVNULL,
             stderr=self.router.subprocess.DEVNULL,
+            stdin=self.router.subprocess.DEVNULL,
             shell=False,
+            **expected_kwargs,
         )
 
     def test_successful_request_uses_the_existing_gui_session(self):

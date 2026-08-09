@@ -61,17 +61,25 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> List[str]:
     chunks = []
     start = 0
     while start < len(text):
-        end = start + chunk_size
+        end = min(start + chunk_size, len(text))
+        
+        # If we're not at the end, try to find a natural break
         if end < len(text):
-            for sep in [". ", ".\n", "\n\n", "\n"]:
+            for sep in ["\n\n", ".\n", ". ", "\n"]:
                 last_sep = text.rfind(sep, start, end)
                 if last_sep != -1 and last_sep > start:
                     end = last_sep + len(sep)
                     break
+                    
         chunk = text[start:end].strip()
         if chunk:
             chunks.append(chunk)
+            
+        if end == len(text):
+            break
+            
         start = max(start + 1, end - overlap)
+            
     return chunks
 
 

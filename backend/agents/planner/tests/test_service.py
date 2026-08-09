@@ -21,6 +21,11 @@ class FakeProvider:
 
     def generate(self, *, system_prompt: str, user_prompt: str) -> str:
         self.calls.append((system_prompt, user_prompt))
+        
+        # If this is a code generation call, return a dummy code draft
+        if "Python Script Engineer" in system_prompt:
+            return json.dumps({"code": "import FreeCAD\ndoc.recompute()"})
+            
         response_index = min(len(self.calls) - 1, len(self.responses) - 1)
         return self.responses[response_index]
 
@@ -31,6 +36,10 @@ def planned_response(steps: list[dict[str, object]]) -> str:
 
 def phased_response(phases: list[dict[str, object]]) -> str:
     return json.dumps({"status": "planned", "phases": phases})
+
+
+def code_response(code: str = "import FreeCAD") -> str:
+    return json.dumps({"code": code})
 
 
 def plan_step(step_id: int, *, depends_on: list[int] | None = None, category: str = "primitive") -> dict[str, object]:

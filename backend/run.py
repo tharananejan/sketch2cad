@@ -2,11 +2,30 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+import os
 
 # Import the new Orchestrator
 from orchestrator.router import AgentRouter
 
+def kill_zombie_processes():
+    """Kill any existing processes listening on our API ports."""
+    ports = [8000, 8001, 8002, 8003, 8004]
+    print("[*] Cleaning up orphaned API servers...")
+    for port in ports:
+        try:
+            output = subprocess.check_output(f"netstat -ano | findstr :{port}", shell=True).decode()
+            for line in output.splitlines():
+                if "LISTENING" in line:
+                    parts = line.strip().split()
+                    pid = parts[-1]
+                    if pid != "0":
+                        subprocess.run(f"taskkill /F /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            pass
+
 def main():
+    kill_zombie_processes()
+
     backend_dir = Path(__file__).resolve().parent
     
     execution_dir = backend_dir / "agents" / "execution"

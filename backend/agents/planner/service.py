@@ -16,6 +16,7 @@ from .errors import (
     UnsupportedRequestError,
 )
 from .models import (
+    CodeGenerationDraft,
     DimensionAnswer,
     NeedsParametersResponse,
     ParameterAuditDraft,
@@ -27,10 +28,14 @@ from .models import (
     PlannerRequest,
     PlannerResponse,
 )
-from .prompts.system_prompt import PLANNER_AUDIT_SYSTEM_PROMPT, PLANNER_PLANNING_SYSTEM_PROMPT
+from .prompts.system_prompt import (
+    PLANNER_AUDIT_SYSTEM_PROMPT,
+    PLANNER_CODE_GENERATION_SYSTEM_PROMPT,
+    PLANNER_PLANNING_SYSTEM_PROMPT,
+)
 from .providers.base import LLMProvider
 
-_DraftT = TypeVar("_DraftT", ParameterAuditDraft, PlanDraft)
+_DraftT = TypeVar("_DraftT", ParameterAuditDraft, PlanDraft, CodeGenerationDraft)
 
 _FORBIDDEN_OUTPUT_PATTERNS = (
     re.compile(r"```", re.IGNORECASE),
@@ -147,19 +152,104 @@ class PlannerService:
             )
 
         self._ensure_modeling_only(plan_draft.steps, plan_draft.phases)
+
+        # Resolve steps for the code generation call
         if plan_draft.phases:
             flattened_steps = [step for phase in plan_draft.phases for step in phase.steps]
+        else:
+            flattened_steps = plan_draft.steps
+
+        # Stage 4: Generate the complete FreeCAD Python script
+        generated_code = self._generate_code(
+            planner_request=planner_request,
+            steps=flattened_steps,
+        )
+
+        if plan_draft.phases:
             return PlanResponse(
                 plan_id=plan_id,
                 complexity="complex",
                 steps=flattened_steps,
                 phases=plan_draft.phases,
+                code=generated_code,
             )
         return PlanResponse(
             plan_id=plan_id,
             complexity="complex",
             steps=plan_draft.steps,
+            code=generated_code,
         )
+
+    def _generate_code(
+        self,
+        planner_request: PlannerRequest,
+        steps: list[PlanStep],
+    ) -> str | None:
+        """Generate a complete FreeCAD Python script from the plan and parameters.
+
+        Uses the same capable LLM that produced the plan to generate the full
+        executable script in a single call, bypassing the weaker code generator
+        SLM entirely.
+
+        Returns the generated code string, or ``None`` if code generation fails
+        (the orchestrator will fall back to the step-by-step code generator).
+        """
+        # Build a rich user prompt for code generation
+        steps_text = "\n".join(
+            f"  {step.step_id}. [{step.category}] {step.title}: {step.description}"
+            for step in steps
+        )
+
+        params = planner_request.context.parameter_answers
+        params_text = ""
+        if params:
+            params_lines = []
+            for key, val in params.items():
+                if isinstance(val, dict) and "value" in val and "unit" in val:
+                    params_lines.append(f"  {key}: {val['value']} {val['unit']}")
+                else:
+                    params_lines.append(f"  {key}: {val}")
+            params_text = "\nResolved Parameters:\n" + "\n".join(params_lines)
+
+        code_gen_user_prompt = (
+            f"User Request: {planner_request.request}\n"
+            f"{params_text}\n\n"
+            f"Plan Steps:\n{steps_text}\n\n"
+            f"Generate a complete, self-contained FreeCAD Python script that "
+            f"implements ALL of the above plan steps in a single script. "
+            f"Use the exact FreeCAD API patterns from the reference in your system prompt. "
+            f"Position all parts correctly relative to each other using the resolved parameters. "
+            f"Fuse all parts into a single final object at the end."
+        )
+
+        try:
+            code_response = self._provider.generate(
+                system_prompt=PLANNER_CODE_GENERATION_SYSTEM_PROMPT,
+                user_prompt=code_gen_user_prompt,
+            )
+            code_draft = self._parse_draft(code_response, CodeGenerationDraft)
+            return code_draft.code
+        except Exception as e:
+            # If code generation fails, return None — the orchestrator will
+            # fall back to the step-by-step code generator path.
+            import sys
+            import traceback
+            import os
+            from datetime import datetime
+            
+            error_msg = f"Error during planner code generation: {e}\n{traceback.format_exc()}"
+            print(error_msg, file=sys.stderr)
+            
+            try:
+                log_path = os.path.join(os.path.dirname(__file__), "planner_error.txt")
+                with open(log_path, "a") as f:
+                    f.write(f"\n[{datetime.utcnow().isoformat()}] Planner Code Gen Error:\n{error_msg}\n")
+            except:
+                pass
+            
+            return None
+                
+            return None
 
     @staticmethod
     def _build_user_prompt(planner_request: PlannerRequest) -> str:

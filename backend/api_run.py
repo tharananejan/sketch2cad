@@ -20,7 +20,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def kill_zombie_processes():
+    """Kill any existing processes listening on our API ports."""
+    ports = [8000, 8001, 8002, 8003, 8004, 8080]
+    print("[*] Cleaning up orphaned API servers...")
+    for port in ports:
+        try:
+            output = subprocess.check_output(f"netstat -ano | findstr :{port}", shell=True).decode()
+            for line in output.splitlines():
+                if "LISTENING" in line:
+                    parts = line.strip().split()
+                    pid = parts[-1]
+                    if pid != "0":
+                        subprocess.run(f"taskkill /F /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            pass
+
 def launch_services():
+    kill_zombie_processes()
     backend_dir = Path(__file__).resolve().parent
     
     execution_dir = backend_dir / "agents" / "execution"
@@ -38,7 +55,7 @@ def launch_services():
         [str(execution_python), "-m", "uvicorn", "api:app", "--host", "127.0.0.1", "--port", "8000"],
         cwd=str(execution_dir),
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
+        stderr=None
     )
     
     print("[*] Starting Code Generator Agent API...")
@@ -46,7 +63,7 @@ def launch_services():
         [sys.executable, "-m", "uvicorn", "code-generator-router:app", "--host", "127.0.0.1", "--port", "8001"],
         cwd=str(code_gen_dir),
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
+        stderr=None
     )
     
     print("[*] Starting Parameter Agent API...")
@@ -54,7 +71,7 @@ def launch_services():
         [sys.executable, "-m", "uvicorn", "parameter-router:app", "--host", "127.0.0.1", "--port", "8002"],
         cwd=str(parameter_dir),
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
+        stderr=None
     )
     
     print("[*] Starting Supervisor Agent API...")
@@ -62,7 +79,7 @@ def launch_services():
         [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8003"],
         cwd=str(supervisor_dir),
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
+        stderr=None
     )
     
     print("[*] Starting Planner Agent API...")

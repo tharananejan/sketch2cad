@@ -212,12 +212,23 @@ class PlanDraft(BaseModel):
         PlanDraft._validate_steps(flattened_steps)
 
 
+class CodeGenerationDraft(BaseModel):
+    """Internal code generation schema required from the LLM provider."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    code: str = Field(min_length=1)
+
+
 class PlanResponse(BaseModel):
     """Strict public response schema sent to n8n and the code generator.
 
     ``steps`` always carries the complete flattened, construction-ordered step list so
     downstream consumers keep working unchanged. ``phases`` groups those steps into
     construction phases for complex designs and is empty for simple parts.
+
+    When the planner also generates FreeCAD code, it is included in the ``code``
+    field so the orchestrator can skip the separate code generator agent.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -227,6 +238,7 @@ class PlanResponse(BaseModel):
     complexity: Literal["complex"] = "complex"
     steps: list[PlanStep] = Field(min_length=1)
     phases: list[PlanPhase] = Field(default_factory=list)
+    code: str | None = Field(default=None)
 
 
 class NeedsParametersResponse(BaseModel):

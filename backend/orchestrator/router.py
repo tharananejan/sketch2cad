@@ -1,5 +1,6 @@
-from typing import Dict
+from typing import Any, Dict
 from .context import OrchestratorContext, AgentState
+from .error_logger import log_error
 from .agent_interfaces import (
     BaseAgentInterface,
     SupervisorAgentInterface,
@@ -57,12 +58,28 @@ class AgentRouter:
             if current == AgentState.FAILED:
                 print("\n\033[1m\033[91m[Orchestrator] Workflow Failed.\033[0m")
                 self._notify("FAILED", "Workflow Failed.")
+                # Log error for future error-handling agent development
+                error_msg = "; ".join(context.execution_errors) if context.execution_errors else "Unknown failure"
+                log_error(
+                    agent_state="FAILED",
+                    user_prompt=context.user_prompt,
+                    error_message=error_msg,
+                    generated_code=context.generated_code or None,
+                )
                 break
                 
             if current == AgentState.ERROR_HANDLING:
                 # We haven't implemented ErrorHandlingAgent yet, so we just fail for now.
                 print("\n\033[93m[Orchestrator] Error Handling triggered, but agent not connected yet. Failing.\033[0m")
                 self._notify("FAILED", "Error Handling triggered, but agent not connected yet.")
+                # Log error for future error-handling agent development
+                error_msg = "; ".join(context.execution_errors) if context.execution_errors else "Error handling triggered"
+                log_error(
+                    agent_state="ERROR_HANDLING",
+                    user_prompt=context.user_prompt,
+                    error_message=error_msg,
+                    generated_code=context.generated_code or None,
+                )
                 context.current_state = AgentState.FAILED
                 continue
 
@@ -79,6 +96,12 @@ class AgentRouter:
             except Exception as e:
                 print(f"\n\033[91m[Orchestrator] Unexpected error in {current}: {e}\033[0m")
                 self._notify("FAILED", f"Unexpected error in {current}: {e}")
+                log_error(
+                    agent_state=str(current),
+                    user_prompt=context.user_prompt,
+                    error_message=f"Unexpected exception: {e}",
+                    generated_code=context.generated_code or None,
+                )
                 context.current_state = AgentState.FAILED
                 
         return context

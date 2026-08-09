@@ -35,7 +35,7 @@ def _load_system_prompt(settings: Settings) -> str:
     return FALLBACK_SYSTEM_PROMPT
 
 
-def generate_cad_code(step: str, settings: Settings = None) -> Tuple[Union[List[str], str], List[str]]:
+def generate_cad_code(step: str, previous_code: str = "", settings: Settings = None) -> Tuple[Union[List[str], str], List[str]]:
     """
     Generate FreeCAD Python code for a given instruction step using RAG + local SLM.
     Returns:
@@ -59,8 +59,14 @@ def generate_cad_code(step: str, settings: Settings = None) -> Tuple[Union[List[
     system_prompt = _load_system_prompt(settings)
     user_prompt = (
         f"Reference Context from Knowledge Base:\n{context_str}\n\n"
+        f"Previously Generated Code (for context):\n{previous_code}\n\n"
         f"User Instruction Step:\n{step}\n\n"
-        f"If the Reference Context contains the knowledge for this step, generate FreeCAD Python macro code. Otherwise output ONLY a JSON object with an error key: {{\"error\": \"step not available\"}}"
+        f"Generate the next FreeCAD Python macro commands for this step. "
+        f"You MUST use the exact FreeCAD syntax and methods demonstrated in the Reference Context. "
+        f"Do NOT invent methods like .translate() on Document Objects if they are not in the context. "
+        f"Use descriptive and unique object names in doc.addObject(...) to avoid conflicts. "
+        f"If the Reference Context contains the knowledge for this step, output ONLY a JSON object with a 'code' array. "
+        f"Otherwise output ONLY a JSON object: {{\"error\": \"step not available\"}}"
     )
 
     # 3. Query Groq API
@@ -106,6 +112,9 @@ def generate_cad_code(step: str, settings: Settings = None) -> Tuple[Union[List[
     except json.JSONDecodeError:
         logger.warning(f"Failed to parse JSON from LLM: {raw_output}")
         return "step not available", sources
+        
+    if isinstance(code_array, str):
+        code_array = [code_array]
         
     if not code_array:
         return "step not available", sources
