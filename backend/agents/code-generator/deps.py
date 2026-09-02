@@ -15,7 +15,7 @@ class Settings:
 
     def __init__(self) -> None:
         self.GROQ_API_KEY: str = os.getenv("GROQ_API_KEY_CODE_GENERATOR", "")
-        self.LLM_MODEL: str = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile")
+        self.LLM_MODEL: str = os.getenv("LLM_MODEL", "groq/compound-mini")
 
         # RAG Chunking and Retrieval parameters
         self.CHUNK_SIZE: int = int(os.getenv("CHUNK_SIZE", "500"))
