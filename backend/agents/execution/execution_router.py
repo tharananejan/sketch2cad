@@ -3,6 +3,7 @@
 import json
 import socket
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -105,11 +106,23 @@ def _start_gui_session() -> Optional[str]:
             return "FreeCAD GUI could not be located for the persistent model session."
 
         _write_gui_bridge_macro()
+        kwargs: Dict[str, Any] = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = (
+                subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NEW_PROCESS_GROUP
+                | 0x01000000  # CREATE_BREAKAWAY_FROM_JOB
+            )
+        else:
+            kwargs["start_new_session"] = True
+
         subprocess.Popen(
             [freecad_gui, str(GUI_BRIDGE_MACRO_PATH)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
             shell=False,
+            **kwargs,
         )
 
         deadline = time.monotonic() + GUI_START_TIMEOUT_SECONDS

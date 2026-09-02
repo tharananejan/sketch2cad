@@ -27,7 +27,7 @@ def generate_code(
     if not request.step or not request.step.strip():
         raise HTTPException(status_code=400, detail="Instruction step cannot be empty.")
 
-    code, sources = generate_cad_code(step=request.step, settings=settings)
+    code, sources = generate_cad_code(step=request.step, previous_code=request.previous_code, settings=settings)
     if isinstance(code, str) and code.strip().lower() == "step not available":
         return CodeGenerateResponse(code=["step not available"], sources=sources, error="step not available")
     elif isinstance(code, str):

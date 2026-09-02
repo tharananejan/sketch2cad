@@ -36,9 +36,9 @@ class PlannerSettings:
         load_dotenv(find_dotenv())
 
         provider_name = os.getenv("PLANNER_PROVIDER", "groq").strip().lower()
-        if provider_name not in {"groq", "deepseek"}:
+        if provider_name not in {"groq", "deepseek", "gemini"}:
             raise PlannerConfigurationError(
-                "PLANNER_PROVIDER must be either 'groq' or 'deepseek'.",
+                "PLANNER_PROVIDER must be 'groq', 'deepseek', or 'gemini'.",
                 details={"provider": provider_name},
             )
 
@@ -106,6 +106,8 @@ def _positive_int(name: str, default: str) -> int:
 
 
 def _default_base_url(provider_name: str) -> str:
+    if provider_name == "gemini":
+        return "https://generativelanguage.googleapis.com/v1beta/openai"
     if provider_name == "groq":
         return "https://api.groq.com/openai/v1"
     return "https://api.deepseek.com"

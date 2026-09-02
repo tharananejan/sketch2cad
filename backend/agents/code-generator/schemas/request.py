@@ -14,6 +14,11 @@ class CodeGenerateRequest(BaseModel):
         description="Natural language instruction or CAD step (e.g., 'make a cube (5mm,5mm,10mm)').",
         examples=["make a cube (5mm,5mm,10mm)", "make a cyclinder(10,10,10)"],
     )
+    
+    previous_code: Optional[str] = Field(
+        default="",
+        description="Previously generated code in the current session for context and variable reference."
+    )
 
     @model_validator(mode="before")
     @classmethod

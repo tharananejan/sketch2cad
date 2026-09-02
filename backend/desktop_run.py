@@ -23,14 +23,30 @@ api_process = None
 def cleanup():
     global api_process
     if api_process and api_process.poll() is None:
-        print("[*] Terminating backend API process tree...")
+        print("[*] Terminating backend API process...")
         if sys.platform == "win32":
-            subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(api_process.pid)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-        else:
+            try:
+                import signal
+                api_process.send_signal(signal.CTRL_BREAK_EVENT)
+                api_process.wait(timeout=3)
+            except Exception:
+                pass
+
+        if api_process and api_process.poll() is None:
             api_process.terminate()
+            try:
+                api_process.wait(timeout=2)
+            except Exception:
+                pass
+
+        if api_process and api_process.poll() is None:
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(api_process.pid)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            else:
+                api_process.kill()
 
 atexit.register(cleanup)
 
@@ -48,7 +64,7 @@ def start_backend_process():
         cwd=str(backend_dir),
         creationflags=flags,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=None,
         stdin=subprocess.DEVNULL,
     )
 

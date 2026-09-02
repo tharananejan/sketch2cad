@@ -29,6 +29,7 @@ class OrchestratorContext(BaseModel):
     # Planner Agent State
     planner_parameters: Dict[str, Any] = Field(default_factory=dict)
     planner_step_categories: List[str] = Field(default_factory=list)
+    planner_generated_code: Optional[str] = None
     
     # Code Generator State
     current_step_index: int = 0

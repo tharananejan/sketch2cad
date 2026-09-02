@@ -293,6 +293,7 @@ class PlannerAgentInterface(BaseAgentInterface):
                     "pending_questions": pending_questions,
                 }
             }
+            print(f"DEBUG: sending payload to planner: {payload}")
             
             req = urllib.request.Request(
                 self.url,
@@ -306,11 +307,10 @@ class PlannerAgentInterface(BaseAgentInterface):
                     status = res_data.get("status")
                     
                     if status == "needs_parameters":
-                        # If we already hit the round cap, skip asking
+                        # If we already hit the round cap, proceed with what we have
                         if round_count > self.MAX_PLANNER_ROUNDS:
-                            print("\033[93m[!] Planner still wants parameters but round cap reached. Failing gracefully.\033[0m")
-                            context.current_state = AgentState.ERROR_HANDLING
-                            return context
+                            print("\033[93m[!] Planner still wants parameters but round cap reached. Proceeding with available parameters.\033[0m")
+                            break
                         
                         questions = res_data.get("questions", [])
                         for q in questions:
@@ -371,6 +371,7 @@ class PlannerAgentInterface(BaseAgentInterface):
                         continue
                         
                     elif status == "planned":
+                        print(f"\033[93m[DEBUG] Planner returned keys: {list(res_data.keys())}\033[0m")
                         steps = res_data.get("steps", [])
                         phases = res_data.get("phases", [])
                         
@@ -393,6 +394,12 @@ class PlannerAgentInterface(BaseAgentInterface):
                             print(f"  {i+1}. [{step_category}] {step_text}")
                             context.parameter_steps.append(step_text)
                             context.planner_step_categories.append(step_category)
+                        
+                        # Store planner-generated code if available
+                        planner_code = res_data.get("code")
+                        if planner_code:
+                            context.planner_generated_code = planner_code
+                            print("\033[92m[+] Planner also generated complete FreeCAD code.\033[0m")
                             
                         context.current_state = AgentState.CODE_GENERATION
                         return context
@@ -402,11 +409,92 @@ class PlannerAgentInterface(BaseAgentInterface):
                         context.current_state = AgentState.ERROR_HANDLING
                         return context
                         
+            except urllib.error.HTTPError as e:
+                error_body = e.read().decode('utf-8')
+                try:
+                    error_data = json.loads(error_body)
+                    error_details = error_data.get("error", {})
+                    code = error_details.get("code", e.code)
+                    msg = error_details.get("message", e.reason)
+                    print(f"\033[91m[!] Planner API Error ({code}): {msg}\033[0m")
+                    if "details" in error_details and error_details["details"]:
+                        print(f"\033[91m    Details: {error_details['details']}\033[0m")
+                except json.JSONDecodeError:
+                    print(f"\033[91m[!] Failed to reach Planner API: HTTP Error {e.code}: {e.reason}\033[0m")
+                    print(f"\033[91m[!] Response Body: {error_body}\033[0m")
+                
+                context.execution_errors.append(str(e))
+                context.current_state = AgentState.ERROR_HANDLING
+                return context
             except urllib.error.URLError as e:
                 print(f"\033[91m[!] Failed to reach Planner API: {e}\033[0m")
                 context.execution_errors.append(str(e))
                 context.current_state = AgentState.ERROR_HANDLING
                 return context
+
+        # Fallback: round cap was reached. Make one final call with empty
+        # pending_questions to force the planner past audit into planning.
+        print("\033[93m[!] Forcing planning with collected parameters...\033[0m")
+        fallback_payload = {
+            "request": context.user_prompt,
+            "context": {
+                "parameter_answers": parameter_answers,
+                "completed_steps": context.session_completed_steps,
+                "remaining_steps": [],
+                "errors": [],
+                "pending_questions": [],
+            }
+        }
+        fallback_req = urllib.request.Request(
+            self.url,
+            data=json.dumps(fallback_payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        try:
+            with urllib.request.urlopen(fallback_req) as response:
+                res_data = json.loads(response.read().decode())
+                status = res_data.get("status")
+
+                if status == "planned":
+                    steps = res_data.get("steps", [])
+                    phases = res_data.get("phases", [])
+                    flat_steps = []
+                    if phases:
+                        for phase in phases:
+                            flat_steps.extend(phase.get("steps", []))
+                    else:
+                        flat_steps = steps
+
+                    print("\033[92m[+] Planner successfully generated steps (after round cap):\033[0m")
+                    context.parameter_steps = []
+                    context.planner_step_categories = []
+                    context.planner_parameters = parameter_answers
+
+                    for i, step in enumerate(flat_steps):
+                        step_text = step.get("description", step.get("title", ""))
+                        step_category = step.get("category", "primitive")
+                        print(f"  {i+1}. [{step_category}] {step_text}")
+                        context.parameter_steps.append(step_text)
+                        context.planner_step_categories.append(step_category)
+
+                    # Store planner-generated code if available
+                    planner_code = res_data.get("code")
+                    if planner_code:
+                        context.planner_generated_code = planner_code
+                        print("\033[92m[+] Planner also generated complete FreeCAD code.\033[0m")
+
+                    context.current_state = AgentState.CODE_GENERATION
+                    return context
+                else:
+                    print(f"\033[91m[!] Planner could not produce a plan even after round cap. Status: {status}\033[0m")
+                    context.current_state = AgentState.ERROR_HANDLING
+                    return context
+
+        except urllib.error.URLError as e:
+            print(f"\033[91m[!] Failed to reach Planner API during fallback: {e}\033[0m")
+            context.execution_errors.append(str(e))
+            context.current_state = AgentState.ERROR_HANDLING
+            return context
 
 class CodeGeneratorAgentInterface(BaseAgentInterface):
     """
@@ -417,6 +505,21 @@ class CodeGeneratorAgentInterface(BaseAgentInterface):
         self.url = url
 
     def process(self, context: OrchestratorContext) -> OrchestratorContext:
+        # Fast path: If the planner already generated complete code, use it
+        # directly and skip the SLM code generator entirely.
+        if context.planner_generated_code:
+            print("\n\033[95m[Code Generator Agent]\033[0m Using planner-generated complete script (skipping SLM).")
+            context.generated_code = context.planner_generated_code
+            context.planner_generated_code = None  # Consume it
+            # Treat the entire script as a single step
+            context.parameter_steps = ["Planner-generated complete FreeCAD script"]
+            context.current_step_index = 0
+            print("\033[95m--- Generated Code ---\033[0m")
+            print(f"```python\n{context.generated_code}\n```")
+            print("\033[95m----------------------\033[0m")
+            context.current_state = AgentState.EXECUTION
+            return context
+
         if context.current_step_index >= len(context.parameter_steps):
             context.current_state = AgentState.COMPLETED
             return context
@@ -449,7 +552,10 @@ class CodeGeneratorAgentInterface(BaseAgentInterface):
         
         req_gen = urllib.request.Request(
             self.url,
-            data=json.dumps({"step": enriched_step}).encode("utf-8"),
+            data=json.dumps({
+                "step": enriched_step,
+                "previous_code": "\n".join(context.runned_codes)
+            }).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
         

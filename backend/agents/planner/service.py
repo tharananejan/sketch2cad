@@ -16,6 +16,7 @@ from .errors import (
     UnsupportedRequestError,
 )
 from .models import (
+    CodeGenerationDraft,
     DimensionAnswer,
     NeedsParametersResponse,
     ParameterAuditDraft,
@@ -27,10 +28,14 @@ from .models import (
     PlannerRequest,
     PlannerResponse,
 )
-from .prompts.system_prompt import PLANNER_AUDIT_SYSTEM_PROMPT, PLANNER_PLANNING_SYSTEM_PROMPT
+from .prompts.system_prompt import (
+    PLANNER_AUDIT_SYSTEM_PROMPT,
+    PLANNER_CODE_GENERATION_SYSTEM_PROMPT,
+    PLANNER_PLANNING_SYSTEM_PROMPT,
+)
 from .providers.base import LLMProvider
 
-_DraftT = TypeVar("_DraftT", ParameterAuditDraft, PlanDraft)
+_DraftT = TypeVar("_DraftT", ParameterAuditDraft, PlanDraft, CodeGenerationDraft)
 
 _FORBIDDEN_OUTPUT_PATTERNS = (
     re.compile(r"```", re.IGNORECASE),
@@ -83,6 +88,7 @@ class PlannerService:
         pending_questions = self._questions_requiring_answers(
             planner_request.context.pending_questions,
             planner_request.context.parameter_answers,
+            ignore_missing=True,
         )
         if pending_questions:
             return NeedsParametersResponse(
@@ -146,19 +152,104 @@ class PlannerService:
             )
 
         self._ensure_modeling_only(plan_draft.steps, plan_draft.phases)
+
+        # Resolve steps for the code generation call
         if plan_draft.phases:
             flattened_steps = [step for phase in plan_draft.phases for step in phase.steps]
+        else:
+            flattened_steps = plan_draft.steps
+
+        # Stage 4: Generate the complete FreeCAD Python script
+        generated_code = self._generate_code(
+            planner_request=planner_request,
+            steps=flattened_steps,
+        )
+
+        if plan_draft.phases:
             return PlanResponse(
                 plan_id=plan_id,
                 complexity="complex",
                 steps=flattened_steps,
                 phases=plan_draft.phases,
+                code=generated_code,
             )
         return PlanResponse(
             plan_id=plan_id,
             complexity="complex",
             steps=plan_draft.steps,
+            code=generated_code,
         )
+
+    def _generate_code(
+        self,
+        planner_request: PlannerRequest,
+        steps: list[PlanStep],
+    ) -> str | None:
+        """Generate a complete FreeCAD Python script from the plan and parameters.
+
+        Uses the same capable LLM that produced the plan to generate the full
+        executable script in a single call, bypassing the weaker code generator
+        SLM entirely.
+
+        Returns the generated code string, or ``None`` if code generation fails
+        (the orchestrator will fall back to the step-by-step code generator).
+        """
+        # Build a rich user prompt for code generation
+        steps_text = "\n".join(
+            f"  {step.step_id}. [{step.category}] {step.title}: {step.description}"
+            for step in steps
+        )
+
+        params = planner_request.context.parameter_answers
+        params_text = ""
+        if params:
+            params_lines = []
+            for key, val in params.items():
+                if isinstance(val, dict) and "value" in val and "unit" in val:
+                    params_lines.append(f"  {key}: {val['value']} {val['unit']}")
+                else:
+                    params_lines.append(f"  {key}: {val}")
+            params_text = "\nResolved Parameters:\n" + "\n".join(params_lines)
+
+        code_gen_user_prompt = (
+            f"User Request: {planner_request.request}\n"
+            f"{params_text}\n\n"
+            f"Plan Steps:\n{steps_text}\n\n"
+            f"Generate a complete, self-contained FreeCAD Python script that "
+            f"implements ALL of the above plan steps in a single script. "
+            f"Use the exact FreeCAD API patterns from the reference in your system prompt. "
+            f"Position all parts correctly relative to each other using the resolved parameters. "
+            f"Fuse all parts into a single final object at the end."
+        )
+
+        try:
+            code_response = self._provider.generate(
+                system_prompt=PLANNER_CODE_GENERATION_SYSTEM_PROMPT,
+                user_prompt=code_gen_user_prompt,
+            )
+            code_draft = self._parse_draft(code_response, CodeGenerationDraft)
+            return code_draft.code
+        except Exception as e:
+            # If code generation fails, return None — the orchestrator will
+            # fall back to the step-by-step code generator path.
+            import sys
+            import traceback
+            import os
+            from datetime import datetime
+            
+            error_msg = f"Error during planner code generation: {e}\n{traceback.format_exc()}"
+            print(error_msg, file=sys.stderr)
+            
+            try:
+                log_path = os.path.join(os.path.dirname(__file__), "planner_error.txt")
+                with open(log_path, "a") as f:
+                    f.write(f"\n[{datetime.utcnow().isoformat()}] Planner Code Gen Error:\n{error_msg}\n")
+            except:
+                pass
+            
+            return None
+                
+            return None
 
     @staticmethod
     def _build_user_prompt(planner_request: PlannerRequest) -> str:
@@ -199,16 +290,27 @@ class PlannerService:
         self,
         pending_questions: list[ParameterQuestion],
         parameter_answers: dict[str, Any],
+        ignore_missing: bool = False,
     ) -> list[ParameterQuestion]:
         unresolved_questions: list[ParameterQuestion] = []
         for question in pending_questions:
             if question.parameter_id not in parameter_answers:
+                if ignore_missing:
+                    # User skipped this question. Do not block. We will let the LLM assume a default.
+                    continue
                 unresolved_questions.append(question)
                 continue
 
             answer = parameter_answers[question.parameter_id]
             issue = self._answer_issue(question, answer)
             if issue:
+                # If the answer has a valid dimension shape (value + unit),
+                # accept it anyway — don't re-ask just because the LLM
+                # flagged a cross-parameter concern on a previous round.
+                if question.value_type == "dimension":
+                    coerced = self._coerce_dimension_answer(answer)
+                    if coerced is not None and coerced.unit in _SUPPORTED_UNITS and coerced.value > 0:
+                        continue
                 unresolved_questions.append(
                     question.model_copy(
                         update={
@@ -238,6 +340,16 @@ class PlannerService:
                 unresolved_ids.add(question.parameter_id)
         return unresolved_questions
 
+    # Well-known contradictory qualifier pairs — these should NOT be merged.
+    _CONTRADICTORY_QUALIFIERS = [
+        {"neck", "body"},
+        {"inner", "outer"},
+        {"top", "bottom"},
+        {"front", "back"},
+        {"left", "right"},
+        {"interior", "exterior"},
+    ]
+
     @staticmethod
     def _deduplicate_questions(
         questions: list[ParameterQuestion],
@@ -249,6 +361,10 @@ class PlannerService:
         audit rounds (e.g., ``body_diameter`` in round 1 and ``outer_diameter`` in
         round 2). This method detects overlap via shared dimension keywords and drops
         the duplicate question when the answered key already covers the concept.
+
+        Uses aggressive merging: if the primary dimension keyword matches, treat as
+        duplicate UNLESS the qualifiers form a known contradictory pair (e.g., neck
+        vs body, inner vs outer).
         """
 
         if not parameter_answers:
@@ -274,12 +390,15 @@ class PlannerService:
                     break
                 if q_keywords & a_keywords:
                     # Shared keyword (e.g., both contain "diameter") — likely a duplicate.
-                    # Only flag as duplicate if there is overlap in the non-keyword
-                    # qualifier too ("body" vs "neck" should not be merged).
+                    # Only keep as separate if qualifiers form a known contradictory pair.
                     q_qualifiers = set(question.parameter_id.split("_")) - _DIMENSION_KEYWORDS
                     a_qualifiers = set(answered_id.split("_")) - _DIMENSION_KEYWORDS
-                    # If either has no qualifier, or qualifiers overlap, it's a duplicate
-                    if not q_qualifiers or not a_qualifiers or (q_qualifiers & a_qualifiers):
+                    combined = q_qualifiers | a_qualifiers
+                    is_contradictory = any(
+                        pair <= combined
+                        for pair in PlannerService._CONTRADICTORY_QUALIFIERS
+                    )
+                    if not is_contradictory:
                         is_duplicate = True
                         break
             if not is_duplicate:
