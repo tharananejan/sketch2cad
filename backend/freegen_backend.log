@@ -1,0 +1,36 @@
+C:\tharananejan\developments-and-projects\idealize-26\repo\sketch2cad\backend\api_run.py:140: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+C:\tharananejan\developments-and-projects\idealize-26\repo\sketch2cad\backend\api_run.py:158: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("shutdown")
+INFO:     Started server process [11244]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:38080 (Press CTRL+C to quit)
+[*] Starting Execution Agent API (port 38000)...
+[*] Starting Code Generator Agent API (port 38001)...
+[*] Starting Parameter Agent API (port 38002)...
+[*] Starting Supervisor Agent API (port 38003)...
+[*] Starting Planner Agent API (port 38004)...
+
+==================================================
+[96m[System] FreeGen Orchestrator WebSocket API Ready![0m
+==================================================
+
+INFO:     127.0.0.1:55243 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50865 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50865 - "GET /assets/index-BisIIRvl.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57198 - "GET /assets/index-BvAbsPVi.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50865 - "GET /freegen.ico HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52133 - "WebSocket /ws" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:50865 - "GET /favicon.ico HTTP/1.1" 200 OK

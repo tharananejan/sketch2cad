@@ -50,23 +50,18 @@ def generate_cad_code(step: str, previous_code: str = "", settings: Settings = N
     # 1. Retrieve RAG context
     context_str, sources = retrieve_context(step, settings=settings)
 
-    # If no relevant knowledge retrieved from knowledge base, terminate process with error
-    if not context_str:
-        logger.warning(f"No relevant RAG knowledge found for step: '{step}'. Terminating with 'step not available'.")
-        return "step not available", []
-
     # 2. Prepare prompts
     system_prompt = _load_system_prompt(settings)
+    context_block = f"Reference Context from Knowledge Base:\n{context_str}\n\n" if context_str else ""
+
     user_prompt = (
-        f"Reference Context from Knowledge Base:\n{context_str}\n\n"
+        f"{context_block}"
         f"Previously Generated Code (for context):\n{previous_code}\n\n"
         f"User Instruction Step:\n{step}\n\n"
         f"Generate the next FreeCAD Python macro commands for this step. "
-        f"You MUST use the exact FreeCAD syntax and methods demonstrated in the Reference Context. "
-        f"Do NOT invent methods like .translate() on Document Objects if they are not in the context. "
+        f"Ensure dimensions are in millimeters (mm). Convert user units if necessary (e.g. 5 cm = 50.0 mm, 10 cm = 100.0 mm). "
         f"Use descriptive and unique object names in doc.addObject(...) to avoid conflicts. "
-        f"If the Reference Context contains the knowledge for this step, output ONLY a JSON object with a 'code' array. "
-        f"Otherwise output ONLY a JSON object: {{\"error\": \"step not available\"}}"
+        f"Output ONLY a JSON object with a 'code' array of strings containing the FreeCAD Python code lines."
     )
 
     # 3. Query Groq API

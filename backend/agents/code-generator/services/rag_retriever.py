@@ -128,46 +128,62 @@ def auto_ingest_knowledge_base(settings: Settings) -> None:
             logger.error(f"Error upserting chunks to ChromaDB: {e}")
 
 
+def get_fallback_context(settings: Settings) -> Tuple[str, List[str]]:
+    """Directly load reference files if ChromaDB is unavailable or returns no match."""
+    if not os.path.isdir(settings.KNOWLEDGE_DIR):
+        return "", []
+
+    docs = []
+    sources = []
+    for filename in sorted(os.listdir(settings.KNOWLEDGE_DIR)):
+        if filename.endswith(".txt") or filename.endswith(".md"):
+            filepath = os.path.join(settings.KNOWLEDGE_DIR, filename)
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                if content:
+                    docs.append(content)
+                    sources.append(filename)
+            except Exception as e:
+                logger.error(f"Error reading knowledge file {filename}: {e}")
+    return "\n---\n".join(docs), sources
+
+
 def retrieve_context(query: str, settings: Settings = None) -> Tuple[str, List[str]]:
     """
     Retrieve relevant FreeCAD Python macros from knowledge base for the user query.
+    Falls back to directly reading knowledge base files if vector retrieval is unavailable.
     Returns:
         tuple[str, list[str]]: (joined_context_text, list_of_unique_source_files)
     """
     if settings is None:
         settings = get_settings()
 
-    # Automatically ingest/refresh knowledge base
-    auto_ingest_knowledge_base(settings)
+    # Try ChromaDB similarity search if available
+    if CHROMADB_AVAILABLE:
+        try:
+            auto_ingest_knowledge_base(settings)
+            collection = init_store(settings)
+            if collection is not None:
+                results = collection.query(
+                    query_texts=[query],
+                    n_results=settings.TOP_K,
+                    include=["documents", "metadatas", "distances"],
+                )
+                if results and results.get("documents") and results["documents"][0]:
+                    context_parts = []
+                    sources = set()
+                    max_dist = getattr(settings, "RAG_MAX_DISTANCE", 1.5)
+                    for i in range(len(results["documents"][0])):
+                        dist = results["distances"][0][i] if "distances" in results and results["distances"] else 0.0
+                        if dist <= max_dist:
+                            context_parts.append(results["documents"][0][i])
+                            sources.add(results["metadatas"][0][i]["source"])
 
-    collection = init_store(settings)
-    if collection is None:
-        return "", []
+                    if context_parts:
+                        return "\n---\n".join(context_parts), sorted(list(sources))
+        except Exception as e:
+            logger.error(f"RAG retrieval query failed: {e}")
 
-    try:
-        results = collection.query(
-            query_texts=[query],
-            n_results=settings.TOP_K,
-            include=["documents", "metadatas", "distances"],
-        )
-        if not results or not results.get("documents") or not results["documents"][0]:
-            return "", []
-
-        context_parts = []
-        sources = set()
-        max_dist = getattr(settings, "RAG_MAX_DISTANCE", 0.65)
-        for i in range(len(results["documents"][0])):
-            dist = results["distances"][0][i] if "distances" in results and results["distances"] else 0.0
-            if dist > max_dist:
-                continue
-            context_parts.append(results["documents"][0][i])
-            sources.add(results["metadatas"][0][i]["source"])
-
-        if not context_parts:
-            return "", []
-
-        context_str = "\n---\n".join(context_parts)
-        return context_str, sorted(list(sources))
-    except Exception as e:
-        logger.error(f"RAG retrieval query failed: {e}")
-        return "", []
+    # Fallback: load reference knowledge base files directly
+    return get_fallback_context(settings)

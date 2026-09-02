@@ -15,10 +15,15 @@ function App() {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const socket = new WebSocket('ws://127.0.0.1:8080/ws');
+    // Use 38080 if running on Vite dev server (5173), otherwise use the dynamic host URL
+    const isDev = window.location.port === '5173';
+    const wsUrl = isDev 
+      ? 'ws://127.0.0.1:38080/ws' 
+      : `ws://${window.location.host}/ws`;
+    const socket = new WebSocket(wsUrl);
     
     socket.onopen = () => {
-      console.log('Connected to Orchestrator');
+      console.log('Connected to FreeGen Orchestrator');
       setAgentStatus('Connected');
     };
     
@@ -28,24 +33,25 @@ function App() {
         if (data.state) {
           const s = data.state;
           if (s === 'waiting for user input ..') {
-            setAgentStatus(s);
+            setAgentStatus('Waiting for your input...');
           } else if (s === 'EXECUTION') {
-            setAgentStatus('executor agent is running...');
+            setAgentStatus('Executing in FreeCAD...');
           } else if (s === 'STARTED') {
-            setAgentStatus('orchestrator started');
+            setAgentStatus('Orchestrator started...');
           } else if (s === 'COMPLETED') {
-            setAgentStatus('completed');
+            setAgentStatus('Completed');
           } else if (s === 'FAILED') {
-            setAgentStatus('failed');
+            setAgentStatus('Failed');
           } else {
-            setAgentStatus(`${s.toLowerCase()} agent is thinking...`);
+            setAgentStatus(`${s.toLowerCase()} agent thinking...`);
           }
         }
-        // Only append messages that have an explicit type (from ws_print) to avoid duplicate state echoes
-        if (data.message && data.type) {
+        
+        if (data.message) {
+          const senderType = data.type || 'agent';
           setMessages(prev => [...prev, {
-            id: Date.now().toString(),
-            sender: data.type, // 'agent', 'process', 'question'
+            id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            sender: senderType,
             text: data.message
           }]);
         }
@@ -74,7 +80,11 @@ function App() {
     if (!inputValue.trim() || !ws) return;
     
     const msg = inputValue.trim();
-    setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'user', text: msg }]);
+    setMessages(prev => [...prev, { 
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`, 
+      sender: 'user', 
+      text: msg 
+    }]);
     ws.send(msg);
     setInputValue('');
   };
@@ -85,15 +95,13 @@ function App() {
     }
   };
 
-  const isThinking = agentStatus && !['Connected', 'Disconnected', 'completed', 'failed', 'orchestrator started'].includes(agentStatus);
+  const isThinking = agentStatus && !['Connected', 'Disconnected', 'Completed', 'Failed'].includes(agentStatus);
 
   // Formatter to colorize [Agent Name] tags and format code blocks
   const renderMessageText = (text: string) => {
-    // Check if the text contains a markdown code block
     if (text.includes('```python') || text.includes('```')) {
       const parts = text.split(/```(?:python)?\n?/);
       return parts.map((part, index) => {
-        // Even indices are normal text, odd indices are code blocks
         if (index % 2 === 1) {
           return (
             <pre key={index} className="code-snippet">
@@ -123,7 +131,22 @@ function App() {
 
   return (
     <>
+      <header className="header titlebar">
+        <div className="header-left">
+          <img src="/freegen.ico" alt="FreeGen Logo" className="header-logo" />
+          <span className="header-title">FreeGen</span>
+        </div>
+        <div className="header-right">
+          <span className={`status-dot ${agentStatus !== 'Disconnected' ? 'online' : 'offline'}`} title={`Status: ${agentStatus}`}></span>
+        </div>
+      </header>
+
       <div className="chat-container">
+        {messages.length === 0 && (
+          <div className="chat-message process">
+            Welcome to FreeGen! Type any 3D CAD instruction to begin (e.g., "Create a 20mm cube" or "Build a cylinder of radius 15mm and height 40mm").
+          </div>
+        )}
         {messages.map((msg) => (
           <div key={msg.id} className={`chat-message ${msg.sender}`}>
             {renderMessageText(msg.text)}
@@ -143,7 +166,6 @@ function App() {
       </div>
 
       <div className="input-container">
-        <span className={`status-dot ${agentStatus === 'Connected' ? 'online' : 'offline'}`} title={`Status: ${agentStatus}`}></span>
         <input 
           type="text" 
           className="chat-input" 
@@ -165,3 +187,4 @@ function App() {
 }
 
 export default App
+

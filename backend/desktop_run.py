@@ -1,7 +1,7 @@
 """
 FreeGen Desktop Launcher
-Launches the Sketch2CAD backend API and opens a native desktop window
-using PyWebView (non-frameless mode for Windows stability).
+Launches the FreeGen backend API and opens the modern UI using native Edge/Chrome
+App Mode (or the default browser) without Python GUI wrapper dependencies.
 """
 import sys
 import subprocess
@@ -9,9 +9,10 @@ import time
 import urllib.request
 import atexit
 import ctypes
+import os
+import shutil
+import webbrowser
 from pathlib import Path
-
-import webview
 
 backend_dir = Path(__file__).resolve().parent
 
@@ -20,51 +21,68 @@ backend_dir = Path(__file__).resolve().parent
 # ---------------------------------------------------------------------------
 api_process = None
 
-def cleanup():
-    global api_process
-    if api_process and api_process.poll() is None:
-        print("[*] Terminating backend API process...")
-        if sys.platform == "win32":
+ALL_PORTS = [38080, 38000, 38001, 38002, 38003, 38004]
+
+def kill_ports():
+    """Ensure no background API or microservices stay listening on our ports."""
+    if sys.platform == "win32":
+        for port in ALL_PORTS:
             try:
-                import signal
-                api_process.send_signal(signal.CTRL_BREAK_EVENT)
-                api_process.wait(timeout=3)
+                output = subprocess.check_output(f'netstat -ano | findstr /R ":{port} "', shell=True).decode()
+                for line in output.splitlines():
+                    if "LISTENING" in line:
+                        parts = line.strip().split()
+                        pid = parts[-1]
+                        if pid and pid != "0" and pid != str(os.getpid()):
+                            subprocess.run(f"taskkill /F /T /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
 
-        if api_process and api_process.poll() is None:
+def cleanup():
+    global api_process
+    print("[*] Shutting down FreeGen backend and microservices...")
+    if api_process and api_process.poll() is None:
+        if sys.platform == "win32":
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(api_process.pid)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                pass
+        else:
             api_process.terminate()
             try:
                 api_process.wait(timeout=2)
             except Exception:
-                pass
-
-        if api_process and api_process.poll() is None:
-            if sys.platform == "win32":
-                subprocess.run(
-                    ["taskkill", "/F", "/PID", str(api_process.pid)],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
-            else:
                 api_process.kill()
+
+    kill_ports()
+    print("[+] All backend services stopped.")
 
 atexit.register(cleanup)
 
 def start_backend_process():
     global api_process
-    print("[*] Launching backend API server...")
+    print("[*] Launching FreeGen backend API server...")
     api_script = backend_dir / "api_run.py"
 
     flags = 0
     if sys.platform == "win32":
         flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
 
+    log_path = backend_dir / "freegen_backend.log"
+    try:
+        log_file = open(log_path, "w", encoding="utf-8")
+    except Exception:
+        log_file = subprocess.DEVNULL
+
     api_process = subprocess.Popen(
         [sys.executable, str(api_script)],
         cwd=str(backend_dir),
         creationflags=flags,
-        stdout=subprocess.DEVNULL,
-        stderr=None,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
         stdin=subprocess.DEVNULL,
     )
 
@@ -87,17 +105,74 @@ def get_target_url():
             pass
 
     # Wait for FastAPI production server
-    print("[*] Waiting for backend at http://127.0.0.1:8080 ...")
-    for _ in range(30):
-        try:
-            with urllib.request.urlopen("http://127.0.0.1:8080/", timeout=1) as resp:
-                if resp.status == 200:
-                    print("[*] Backend ready at http://127.0.0.1:8080")
-                    return "http://127.0.0.1:8080"
-        except Exception:
-            time.sleep(0.5)
+    print("[*] Waiting for backend at http://127.0.0.1:38080 ...")
+    for _ in range(40):
+        if api_process and api_process.poll() is not None:
+            print(f"[!] Backend API process exited with code {api_process.returncode}. Check freegen_backend.log for details.")
+            break
 
-    return "http://127.0.0.1:8080"
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:38080/health", timeout=1) as resp:
+                if resp.status == 200:
+                    print("[*] Backend ready at http://127.0.0.1:38080")
+                    return "http://127.0.0.1:38080"
+        except Exception:
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:38080/", timeout=1) as resp:
+                    if resp.status in (200, 404):
+                        print("[*] Backend ready at http://127.0.0.1:38080")
+                        return "http://127.0.0.1:38080"
+            except Exception:
+                time.sleep(0.5)
+
+    return "http://127.0.0.1:38080"
+
+# ---------------------------------------------------------------------------
+# Browser App Mode Detection
+# ---------------------------------------------------------------------------
+def find_app_mode_browser():
+    """Find Microsoft Edge or Google Chrome for standalone App Mode."""
+    if sys.platform == "win32":
+        candidates = [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ]
+        # Also check local app data
+        local_appdata = os.environ.get("LOCALAPPDATA", "")
+        if local_appdata:
+            candidates.append(os.path.join(local_appdata, "Microsoft", "Edge", "Application", "msedge.exe"))
+            candidates.append(os.path.join(local_appdata, "Google", "Chrome", "Application", "chrome.exe"))
+
+        for cand in candidates:
+            if Path(cand).is_file():
+                return cand
+
+        edge_in_path = shutil.which("msedge") or shutil.which("msedge.exe")
+        if edge_in_path:
+            return edge_in_path
+
+        chrome_in_path = shutil.which("chrome") or shutil.which("chrome.exe")
+        if chrome_in_path:
+            return chrome_in_path
+
+    elif sys.platform == "darwin":
+        candidates = [
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ]
+        for cand in candidates:
+            if Path(cand).is_file():
+                return cand
+
+    elif sys.platform.startswith("linux"):
+        for name in ("microsoft-edge", "google-chrome", "chromium-browser", "chromium"):
+            p = shutil.which(name)
+            if p:
+                return p
+
+    return None
 
 # ---------------------------------------------------------------------------
 # Main
@@ -109,78 +184,52 @@ if __name__ == "__main__":
     # 2. Resolve the URL to load
     target_url = get_target_url()
 
-    # 3. Calculate window dimensions (2/3 of screen height, right-aligned)
+    # 3. Calculate window dimensions (approx 70% of screen height, right-aligned)
     try:
-        user32 = ctypes.windll.user32
-        screen_w = user32.GetSystemMetrics(0)
-        screen_h = user32.GetSystemMetrics(1)
+        if sys.platform == "win32":
+            user32 = ctypes.windll.user32
+            screen_w = user32.GetSystemMetrics(0)
+            screen_h = user32.GetSystemMetrics(1)
+        else:
+            screen_w, screen_h = 1920, 1080
     except Exception:
         screen_w, screen_h = 1920, 1080
 
-    win_w = 440
-    win_h = int(screen_h * 0.70)
-    win_x = max(0, screen_w - win_w - 15)
-    win_y = int(screen_h * 0.15)
+    win_w = 460
+    win_h = int(screen_h * 0.72)
+    win_x = max(0, screen_w - win_w - 20)
+    win_y = int(screen_h * 0.14)
 
-    # 4. Resolve the icon path (freegen.ico next to this script)
-    icon_path = str(backend_dir / "freegen.ico")
-
-    # 5. Create a NORMAL (non-frameless) window — frameless is unstable on
-    #    Windows with the pythonnet/WinForms backend and causes "not responding"
-    window = webview.create_window(
-        title="FreeGen",
-        url=target_url,
-        width=win_w,
-        height=win_h,
-        x=win_x,
-        y=win_y,
-        resizable=True,
-        on_top=True,
-        background_color="#1e1e1e",
-    )
-
-    # 6. Set custom window icon using Win32 API (replaces default Python icon)
-    def set_window_icon():
-        """Set custom icon on the native window handle after it is created."""
-        import time as _time
-        try:
-            user32 = ctypes.windll.user32
-
-            WM_SETICON = 0x0080
-            ICON_SMALL = 0
-            ICON_BIG = 1
-
-            # Load icon from .ico file
-            hicon = user32.LoadImageW(
-                0, icon_path, 1,  # IMAGE_ICON
-                0, 0,
-                0x0010 | 0x0040  # LR_LOADFROMFILE | LR_DEFAULTSIZE
-            )
-
-            if not hicon:
-                print("[!] Failed to load icon file")
-                return
-
-            # Find the window by its title — may take a moment to appear
-            hwnd = 0
-            for _ in range(20):
-                hwnd = user32.FindWindowW(None, "FreeGen")
-                if hwnd:
-                    break
-                _time.sleep(0.25)
-
-            if hwnd:
-                user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon)
-                user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon)
-                print("[*] Custom window icon applied")
-            else:
-                print("[!] Could not find FreeGen window handle")
-        except Exception as e:
-            print(f"[!] Could not set window icon: {e}")
-
-    print(f"[*] Opening FreeGen window -> {target_url}")
+    # 4. Launch in Edge/Chrome App mode or default browser
+    browser_exe = find_app_mode_browser()
+    browser_proc = None
 
     try:
-        webview.start(debug=False, func=set_window_icon)
+        if browser_exe:
+            print(f"[*] Launching FreeGen App window ({Path(browser_exe).name}) -> {target_url}")
+            import tempfile
+            profile_dir = Path(tempfile.gettempdir()) / "FreeGen_WebProfile"
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            app_args = [
+                browser_exe,
+                f"--app={target_url}",
+                f"--user-data-dir={profile_dir}",
+                f"--window-size={win_w},{win_h}",
+                f"--window-position={win_x},{win_y}",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ]
+            browser_proc = subprocess.Popen(app_args)
+            # Wait until user closes the app window
+            browser_proc.wait()
+        else:
+            print(f"[*] Opening FreeGen in default web browser -> {target_url}")
+            webbrowser.open(target_url)
+            # Keep backend alive until interrupted
+            while True:
+                time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n[*] Exiting FreeGen...")
     finally:
         cleanup()
+

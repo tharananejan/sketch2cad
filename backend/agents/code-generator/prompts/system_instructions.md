@@ -18,4 +18,5 @@ Follow these strict rules when generating code:
 6. Set parameters accurately according to the user's instruction (e.g., length, width, height, radius). Note that FreeCAD standard unit is millimeters (mm).
 7. Always invoke `doc.recompute()` at the end of the script to update the 3D model geometry.
 8. Keep the script self-contained, idempotent where possible, and properly indented.
-9. KNOWLEDGE CHECK: You must check whether the provided Reference Context from the RAG knowledge base contains instructions and knowledge for performing the requested CAD step. If the Reference Context does NOT contain the knowledge to perform the step, or if you do not have the knowledge about how to do that step, you MUST NOT generate or guess any code. Instead, you MUST terminate the process and respond ONLY with the JSON object: {"error": "step not available"}
+9. Unit Conversion: FreeCAD dimensions are strictly in millimeters (mm). Always convert user input dimensions (e.g. cm, m, inch) into millimeters (mm). For example: 5 cm = 50.0 mm, 10 cm = 100.0 mm, 1 inch = 25.4 mm.
+10. Output Format: Output ONLY a JSON object with a single "code" key containing the list of executable Python statements: `{"code": ["line1", "line2", ...]}`. If an instruction is completely nonsensical or not a CAD operation, return `{"error": "step not available"}`.

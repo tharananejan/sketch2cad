@@ -120,7 +120,7 @@ class SupervisorAgentInterface(BaseAgentInterface):
     """
     Interface for the Supervisor Agent (Complexity Checker).
     """
-    def __init__(self, url: str = "http://127.0.0.1:8003/supervisor/evaluate"):
+    def __init__(self, url: str = "http://127.0.0.1:38003/supervisor/evaluate"):
         self.url = url
 
     def process(self, context: OrchestratorContext) -> OrchestratorContext:
@@ -157,7 +157,7 @@ class ParameterAgentInterface(BaseAgentInterface):
     """
     Interface for the LLM-driven Parameter Agent.
     """
-    def __init__(self, url: str = "http://127.0.0.1:8002/analyze"):
+    def __init__(self, url: str = "http://127.0.0.1:38002/analyze"):
         self.url = url
 
     def process(self, context: OrchestratorContext) -> OrchestratorContext:
@@ -257,7 +257,7 @@ class PlannerAgentInterface(BaseAgentInterface):
     """
     MAX_PLANNER_ROUNDS = 3
 
-    def __init__(self, url: str = "http://127.0.0.1:8004/planner"):
+    def __init__(self, url: str = "http://127.0.0.1:38004/planner"):
         self.url = url
 
     def process(self, context: OrchestratorContext) -> OrchestratorContext:
@@ -501,7 +501,7 @@ class CodeGeneratorAgentInterface(BaseAgentInterface):
     Interface for the lightweight SLM Code Generator Agent.
     Enriches step text with resolved parameters and skips non-executable planning steps.
     """
-    def __init__(self, url: str = "http://127.0.0.1:8001/generate"):
+    def __init__(self, url: str = "http://127.0.0.1:38001/generate"):
         self.url = url
 
     def process(self, context: OrchestratorContext) -> OrchestratorContext:
@@ -589,7 +589,7 @@ class ExecutorAgentInterface(BaseAgentInterface):
     """
     Interface for the Executor Agent (FreeCAD runner).
     """
-    def __init__(self, url: str = "http://127.0.0.1:8000/execute"):
+    def __init__(self, url: str = "http://127.0.0.1:38000/execute"):
         self.url = url
 
     def process(self, context: OrchestratorContext) -> OrchestratorContext:

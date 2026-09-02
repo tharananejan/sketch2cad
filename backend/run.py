@@ -9,7 +9,7 @@ from orchestrator.router import AgentRouter
 
 def kill_zombie_processes():
     """Kill any existing processes listening on our API ports."""
-    ports = [8000, 8001, 8002, 8003, 8004]
+    ports = [38000, 38001, 38002, 38003, 38004]
     print("[*] Cleaning up orphaned API servers...")
     for port in ports:
         try:
@@ -19,7 +19,7 @@ def kill_zombie_processes():
                     parts = line.strip().split()
                     pid = parts[-1]
                     if pid != "0":
-                        subprocess.run(f"taskkill /F /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        subprocess.run(f"taskkill /F /T /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except subprocess.CalledProcessError:
             pass
 
@@ -34,13 +34,9 @@ def main():
     supervisor_dir = backend_dir / "agents" / "supervisor"
     planner_dir = backend_dir / "agents" / "planner"
     
-    execution_python = execution_dir / ".venv" / "Scripts" / "python.exe"
-    if not execution_python.exists():
-        execution_python = sys.executable
-        
     print("[*] Starting Execution Agent API...")
     execution_process = subprocess.Popen(
-        [str(execution_python), "-m", "uvicorn", "api:app", "--host", "127.0.0.1", "--port", "8000"],
+        [sys.executable, "-m", "uvicorn", "api:app", "--host", "127.0.0.1", "--port", "38000"],
         cwd=str(execution_dir),
         stdout=subprocess.DEVNULL, # Hide server logs to keep terminal clean
         stderr=subprocess.DEVNULL
@@ -48,7 +44,7 @@ def main():
     
     print("[*] Starting Code Generator Agent API...")
     code_gen_process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "code-generator-router:app", "--host", "127.0.0.1", "--port", "8001"],
+        [sys.executable, "-m", "uvicorn", "code-generator-router:app", "--host", "127.0.0.1", "--port", "38001"],
         cwd=str(code_gen_dir),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
@@ -56,7 +52,7 @@ def main():
     
     print("[*] Starting Parameter Agent API...")
     parameter_process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "parameter-router:app", "--host", "127.0.0.1", "--port", "8002"],
+        [sys.executable, "-m", "uvicorn", "parameter-router:app", "--host", "127.0.0.1", "--port", "38002"],
         cwd=str(parameter_dir),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
@@ -64,7 +60,7 @@ def main():
     
     print("[*] Starting Supervisor Agent API...")
     supervisor_process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8003"],
+        [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "38003"],
         cwd=str(supervisor_dir),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
@@ -72,7 +68,7 @@ def main():
     
     print("[*] Starting Planner Agent API...")
     planner_process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "agents.planner.api:app", "--host", "127.0.0.1", "--port", "8004"],
+        [sys.executable, "-m", "uvicorn", "agents.planner.api:app", "--host", "127.0.0.1", "--port", "38004"],
         cwd=str(backend_dir),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
