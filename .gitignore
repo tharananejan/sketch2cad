@@ -60,3 +60,6 @@ node_modules/
 
 # Logs
 backend/agents/error-handler/docs/error_log.txt
+
+# Builds
+builds/
